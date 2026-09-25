@@ -31,9 +31,12 @@ export default function LoginPage() {
     <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 flex flex-col items-center">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-600 text-base font-bold text-white">
+          <Link
+            href="/"
+            className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-600 text-base font-bold text-white"
+          >
             B
-          </div>
+          </Link>
           <h1 className="mt-4 text-xl font-semibold text-slate-900">Welcome back</h1>
           <p className="mt-1 text-sm text-slate-500">Sign in to your boards</p>
         </div>
