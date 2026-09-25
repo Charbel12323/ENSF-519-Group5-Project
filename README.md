@@ -1,4 +1,4 @@
-# ENSF 519 Group 5 Project - Boardly
+Boardly
 
 A simple Jira-style Kanban board built for a university group project.
 Users can sign up, create a group, invite teammates, and manage tasks on a per-group Kanban board with a live stats dashboard.
@@ -10,14 +10,6 @@ Users can sign up, create a group, invite teammates, and manage tasks on a per-g
 - Kanban board per group with drag-and-drop across To Do / In Progress / Done
 - Assign tasks to any group member
 - Dashboard showing total tasks, tasks by status, and tasks by assignee
-
-## Tech stack
-
-- **Frontend**: Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS
-- **Backend**: Node.js, Express 5, TypeScript, Prisma ORM
-- **Database**: PostgreSQL
-- **Auth**: Custom JWT (bcrypt-hashed passwords)
-- **Infra**: Docker Compose (db, backend, frontend)
 
 ## Project structure
 
