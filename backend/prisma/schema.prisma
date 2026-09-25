@@ -1,0 +1,106 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum GroupRole {
+  OWNER
+  MEMBER
+}
+
+enum InviteStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+}
+
+model User {
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+
+  memberships    GroupMember[]
+  ownedGroups    Group[]        @relation("GroupOwner")
+  assignedTasks  Task[]         @relation("TaskAssignee")
+  createdTasks   Task[]         @relation("TaskCreator")
+  sentInvites    GroupInvite[]  @relation("InviteSender")
+  receivedInvites GroupInvite[] @relation("InviteRecipient")
+}
+
+model Group {
+  id        String   @id @default(uuid())
+  name      String
+  ownerId   String
+  owner     User     @relation("GroupOwner", fields: [ownerId], references: [id])
+  createdAt DateTime @default(now())
+
+  members   GroupMember[]
+  columns   Column[]
+  tasks     Task[]
+  invites   GroupInvite[]
+}
+
+model GroupMember {
+  id       String    @id @default(uuid())
+  groupId  String
+  userId   String
+  role     GroupRole @default(MEMBER)
+  joinedAt DateTime  @default(now())
+
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+}
+
+model GroupInvite {
+  id             String       @id @default(uuid())
+  groupId        String
+  email          String
+  status         InviteStatus @default(PENDING)
+  createdAt      DateTime     @default(now())
+  invitedById    String
+  recipientId    String?
+
+  group       Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  invitedBy   User  @relation("InviteSender", fields: [invitedById], references: [id])
+  recipient   User? @relation("InviteRecipient", fields: [recipientId], references: [id])
+
+  @@unique([groupId, email])
+}
+
+model Column {
+  id      String @id @default(uuid())
+  groupId String
+  name    String
+  order   Int
+
+  group Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  tasks Task[]
+
+  @@unique([groupId, order])
+}
+
+model Task {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  groupId     String
+  columnId    String
+  order       Int
+  assigneeId  String?
+  creatorId   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  group    Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  column   Column @relation(fields: [columnId], references: [id], onDelete: Cascade)
+  assignee User?  @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  creator  User   @relation("TaskCreator", fields: [creatorId], references: [id])
+}
