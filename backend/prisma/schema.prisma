@@ -55,6 +55,21 @@ model Group {
   labels Label[]
   activity Activity[]
   notifications Notification[]
+  milestones Milestone[]
+}
+
+model Milestone {
+  id          String   @id @default(uuid())
+  groupId     String
+  title       String
+  description String?
+  dueDate     DateTime @db.Date
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId, dueDate])
 }
 
 model GroupMember {
@@ -111,6 +126,7 @@ model Task {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   priority Priority @default(MEDIUM)
+  startDate DateTime? @db.Date
   dueDate DateTime? @db.Date
   archivedAt DateTime?
 
@@ -137,6 +153,7 @@ model TaskDependency {
   task Task @relation("DependentTask", fields: [taskId], references: [id], onDelete: Cascade)
   dependsOn Task @relation("BlockingTask", fields: [dependsOnId], references: [id], onDelete: Cascade)
   @@id([taskId, dependsOnId])
+  @@index([dependsOnId])
 }
 
 model Notification {

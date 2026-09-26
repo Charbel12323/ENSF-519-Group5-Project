@@ -7,6 +7,7 @@ import {
 } from "../controllers/groups.controller";
 import { createTask, listTasks } from "../controllers/tasks.controller";
 import { getGroupDashboard } from "../controllers/dashboard.controller";
+import { createMilestone, deleteMilestone, listMilestones, updateMilestone } from "../controllers/milestones.controller";
 import { requireAuth } from "../middleware/auth";
 import { renameGroup, deleteGroup, removeMember, transferOwnership, createColumn, renameColumn, reorderColumns, deleteColumn, saveLabel, deleteLabel, listActivity } from "../controllers/groups.controller";
 
@@ -34,5 +35,9 @@ router.post("/:groupId/invite", inviteMember);
 router.get("/:groupId/dashboard", getGroupDashboard);
 router.get("/:groupId/tasks", listTasks);
 router.post("/:groupId/tasks", createTask);
+router.get("/:groupId/milestones", listMilestones);
+router.post("/:groupId/milestones", createMilestone);
+router.patch("/:groupId/milestones/:milestoneId", updateMilestone);
+router.delete("/:groupId/milestones/:milestoneId", deleteMilestone);
 
 export default router;

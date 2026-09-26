@@ -1,11 +1,10 @@
 "use client";
 import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import { DragDropContext, Droppable, DropResult } from "@hello-pangea/dnd";
 import AppShell from "@/components/AppShell";
-import BackLink from "@/components/BackLink";
+import GroupNav from "@/components/GroupNav";
 import TaskCard from "@/components/TaskCard";
-import TaskModal, { TaskFormValues } from "@/components/TaskModal";
+import TaskModal, { taskRequestBody, TaskFormValues } from "@/components/TaskModal";
 import TaskFilters, { emptyFilters, filterTasks } from "@/components/TaskFilters";
 import { api } from "@/lib/api";
 import { getErrorMessage, useAuth } from "@/lib/auth-context";
@@ -67,9 +66,8 @@ export default function BoardPage({ params }: { params: Promise<{ groupId: strin
   async function save(values: TaskFormValues) {
     setSaving(true); ++sequence.current;
     try {
-      const body = { ...values, description: values.description || null, assigneeId: values.assigneeId || null, dueDate: values.dueDate || null };
-      if (modal?.mode === "edit") await api.patch(`/api/tasks/${modal.task.id}`, body);
-      else await api.post(`/api/groups/${groupId}/tasks`, body);
+      if (modal?.mode === "edit") await api.patch(`/api/tasks/${modal.task.id}`, taskRequestBody(values, "edit"));
+      else await api.post(`/api/groups/${groupId}/tasks`, taskRequestBody(values, "create"));
       setModal(null); await load();
     } finally { setSaving(false); }
   }
@@ -81,10 +79,7 @@ export default function BoardPage({ params }: { params: Promise<{ groupId: strin
     finally { setSaving(false); }
   }
   return <AppShell>
-    <BackLink href="/dashboard" label="Back to groups" />
-    <div className="mt-3 flex flex-wrap items-center justify-between gap-3"><div><p className="text-sm text-slate-500">{group?.name}</p><h1 className="text-2xl font-semibold">Board</h1></div>
-      <nav className="flex gap-4 text-sm text-brand-600"><Link href={`/dashboard/${groupId}`}>Dashboard</Link><Link href={`/groups/${groupId}/members`}>Members & settings</Link></nav>
-    </div>
+    <GroupNav groupId={groupId} groupName={group?.name} title="Board" />
     {error && <p className="error mt-4" role="alert">{error}</p>}
     {loading ? <p className="mt-4 text-sm">Loading board…</p> : group && <>
       <TaskFilters value={filters} onChange={setFilters} columns={group.columns} members={group.members} labels={group.labels} />
@@ -101,7 +96,7 @@ export default function BoardPage({ params }: { params: Promise<{ groupId: strin
           </section>)}
         </div>
       </DragDropContext>
-      {modal && <TaskModal mode={modal.mode} task={modal.mode === "edit" ? modal.task : undefined} defaultColumnId={modal.mode === "create" ? modal.columnId : undefined} columns={group.columns} members={group.members} labels={group.labels} owner={group.ownerId === user?.id} saving={saving} onClose={() => setModal(null)} onSave={save} onDelete={modal.mode === "edit" ? remove : undefined} onChanged={load} />}
+      {modal && <TaskModal mode={modal.mode} task={modal.mode === "edit" ? modal.task : undefined} defaultColumnId={modal.mode === "create" ? modal.columnId : undefined} columns={group.columns} members={group.members} labels={group.labels} tasks={tasks} owner={group.ownerId === user?.id} saving={saving} onClose={() => setModal(null)} onSave={save} onDelete={modal.mode === "edit" ? remove : undefined} onChanged={load} />}
     </>}
   </AppShell>;
 }

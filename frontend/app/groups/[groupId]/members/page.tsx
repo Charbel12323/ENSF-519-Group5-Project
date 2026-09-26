@@ -1,9 +1,8 @@
 "use client";
 import { FormEvent, use, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import AppShell from "@/components/AppShell";
-import BackLink from "@/components/BackLink";
+import GroupNav from "@/components/GroupNav";
 import GroupSettings from "@/components/GroupSettings";
 import { api } from "@/lib/api";
 import { getErrorMessage, useAuth } from "@/lib/auth-context";
@@ -39,8 +38,7 @@ export default function GroupMembersPage({ params }: { params: Promise<{ groupId
   }); }
   const owner = group?.ownerId === user?.id;
   return <AppShell>
-    <BackLink href="/dashboard" label="Back to groups" />
-    <div className="mt-3 flex flex-wrap items-center justify-between gap-3"><div><p className="text-sm text-slate-500">{group?.name}</p><h1 className="text-2xl font-semibold">Members & settings</h1></div><Link className="text-sm text-brand-600" href={`/board/${groupId}`}>Open board</Link></div>
+    <GroupNav groupId={groupId} groupName={group?.name} title="Members & settings" />
     {error && <p className="error mt-4" role="alert">{error}</p>}{success && <p className="notice mt-4" role="status">{success}</p>}
     {!group ? <p className="mt-5">{error ? "Unable to load this group." : "Loading group…"}</p> : <div className="mt-5 space-y-6">
       {owner && <form className="panel flex flex-wrap items-end gap-3" onSubmit={invite}><label className="flex-1 text-sm">Invite by email<input className="field mt-1" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="teammate@example.com" /></label><button className="btn-primary" disabled={busy || !user?.emailVerified}>Send invitation</button></form>}

@@ -177,13 +177,21 @@ export default function DashboardOverviewPage() {
                   <span>{group.memberCount} members</span>
                   <span>{group.taskCount} tasks</span>
                 </div>
-                <div className="mt-4 flex gap-3 text-sm font-medium text-brand-600">
+                <div className="mt-4 flex flex-wrap gap-x-3 gap-y-1 text-sm font-medium text-brand-600">
                   <Link href={`/board/${group.id}`} className="hover:text-brand-700">
-                    Open board
+                    Board
+                  </Link>
+                  <span className="text-slate-300">&middot;</span>
+                  <Link href={`/groups/${group.id}/calendar`} className="hover:text-brand-700">
+                    Calendar
+                  </Link>
+                  <span className="text-slate-300">&middot;</span>
+                  <Link href={`/groups/${group.id}/timeline`} className="hover:text-brand-700">
+                    Timeline
                   </Link>
                   <span className="text-slate-300">&middot;</span>
                   <Link href={`/dashboard/${group.id}`} className="hover:text-brand-700">
-                    View dashboard
+                    Dashboard
                   </Link>
                   <span className="text-slate-300">&middot;</span>
                   <Link href={`/groups/${group.id}/members`} className="hover:text-brand-700">

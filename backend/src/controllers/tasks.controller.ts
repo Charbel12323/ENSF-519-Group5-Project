@@ -6,20 +6,22 @@ import { Db, inGroup, membership, publicUser, record } from "../lib/access";
 import { insertAt, normalizeTasks } from "../lib/order";
 import { HttpError } from "../middleware/errorHandler";
 import { AuthedRequest } from "../middleware/auth";
+import { validateDependencies } from "../lib/dependencies";
 
-const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((s) => {
+export const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((s) => {
   const parsed = new Date(s); return !isNaN(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === s;
 }, "Use a valid date").transform((s) => new Date(s));
 const fields = z.object({
   title: z.string().trim().min(1).max(200), description: z.string().trim().max(2000).nullable().optional(),
   columnId: z.string().uuid(), assigneeId: z.string().uuid().nullable().optional(),
   priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).optional(), dueDate: date.nullable().optional(),
-  labelIds: z.array(z.string().uuid()).max(30).optional(),
+  startDate: date.nullable().optional(), labelIds: z.array(z.string().uuid()).max(30).optional(),
 });
-const update = fields.partial().extend({ order: z.number().int().min(0).optional() });
+const update = fields.partial().extend({ order: z.number().int().min(0).optional(), dependencyIds: z.array(z.string().uuid()).max(50).optional() });
 export const taskInclude = {
   assignee: { select: publicUser }, creator: { select: publicUser }, labels: true,
   subtasks: { orderBy: { createdAt: "asc" as const } },
+  dependencies: { select: { dependsOnId: true } },
   _count: { select: { comments: true, attachments: true } },
 };
 const attachmentSelect = { id: true, name: true, size: true, createdAt: true, uploaderId: true } as const;
@@ -39,6 +41,10 @@ async function mutate<T>(req: TaskRequest, action: (db: Db, task: NonNullable<Aw
     if (!task) throw new HttpError(404, "Task not found");
     return action(db, task);
   });
+}
+
+function validateDates(startDate: Date | null | undefined, dueDate: Date | null | undefined) {
+  if (startDate && dueDate && startDate > dueDate) throw new HttpError(400, "Start date must be on or before the due date");
 }
 
 async function validateRelations(db: Db, groupId: string, body: z.infer<typeof update>) {
@@ -96,6 +102,7 @@ export async function getTask(req: TaskRequest, res: Response) {
 
 export async function createTask(req: AuthedRequest<{ groupId: string }>, res: Response) {
   const body = fields.parse(req.body);
+  validateDates(body.startDate, body.dueDate);
   const task = await inGroup(req.params.groupId, req.userId!, false, async (db) => {
     await validateRelations(db, req.params.groupId, body);
     await normalizeTasks(db, body.columnId);
@@ -112,7 +119,14 @@ export async function updateTask(req: TaskRequest, res: Response) {
   const body = update.parse(req.body);
   const task = await mutate(req, async (db, existing) => {
     await validateRelations(db, existing.groupId, body);
-    const { labelIds, order, ...data } = body;
+    validateDates(body.startDate === undefined ? existing.startDate : body.startDate, body.dueDate === undefined ? existing.dueDate : body.dueDate);
+    const { labelIds, order, dependencyIds, ...data } = body;
+    if (dependencyIds) {
+      const ids = [...new Set(dependencyIds)];
+      await validateDependencies(db, existing.groupId, existing.id, ids);
+      await db.taskDependency.deleteMany({ where: { taskId: existing.id } });
+      await db.taskDependency.createMany({ data: ids.map((dependsOnId) => ({ taskId: existing.id, dependsOnId })) });
+    }
     const columnId = body.columnId ?? existing.columnId;
     if (columnId !== existing.columnId || order !== undefined) {
       const destination = await db.task.findMany({ where: { columnId, id: { not: existing.id } }, orderBy: [{ order: "asc" }, { id: "asc" }] });
@@ -121,7 +135,7 @@ export async function updateTask(req: TaskRequest, res: Response) {
     }
     const task = await db.task.update({ where: { id: existing.id }, data: { ...data,
       ...(labelIds ? { labels: { set: labelIds.map((id) => ({ id })) } } : {}) }, include: taskInclude });
-    const changes = Object.keys(body).map((k) => ({ columnId: "status", assigneeId: "assignee", labelIds: "labels", dueDate: "due date", order: "position" }[k] ?? k));
+    const changes = Object.keys(body).map((k) => ({ columnId: "status", assigneeId: "assignee", labelIds: "labels", dueDate: "due date", startDate: "start date", dependencyIds: "dependencies", order: "position" }[k] ?? k));
     await record(db, task.groupId, req.userId!, `Updated ${changes.join(", ")} on "${task.title}"`, task.id);
     return task;
   });

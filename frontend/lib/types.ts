@@ -49,8 +49,10 @@ export interface Task {
   createdAt: string;
   updatedAt: string;
   priority: Priority;
+  startDate: string | null;
   dueDate: string | null;
   labels: Label[];
+  dependencies: { dependsOnId: string }[];
   subtasks: Subtask[];
   _count: { comments: number; attachments: number };
 }
@@ -74,10 +76,39 @@ export interface Invite {
   invitedBy: User;
 }
 
+export type StatusCategory = "TODO" | "IN_PROGRESS" | "DONE";
+export type DeadlineState = "UPCOMING" | "TODAY" | "OVERDUE" | "COMPLETED";
+
+export interface Milestone {
+  id: string;
+  groupId: string;
+  title: string;
+  description: string | null;
+  dueDate: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MemberProgress {
+  userId: string;
+  name: string;
+  email: string;
+  role: "OWNER" | "MEMBER";
+  assigned: number;
+  completed: number;
+  inProgress: number;
+  notStarted: number;
+  overdue: number;
+  completionPercent: number;
+}
+
 export interface DashboardStats {
   totalTasks: number;
   totalMembers: number;
   unassignedCount: number;
-  tasksByColumn: { columnId: string; columnName: string; count: number }[];
+  tasksByColumn: { columnId: string; columnName: string; status: StatusCategory; count: number }[];
   tasksByAssignee: { userId: string; name: string; email: string; count: number }[];
+  summary: { completed: number; inProgress: number; notStarted: number; overdue: number; upcoming: number; completionPercent: number; upcomingDays: number };
+  team: MemberProgress[];
+  deadlines: { id: string; title: string; dueDate: string; assignee: User | null; status: StatusCategory; deadline: DeadlineState }[];
 }
