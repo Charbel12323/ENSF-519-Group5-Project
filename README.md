@@ -9,7 +9,12 @@ Users can sign up, create a group, invite teammates, and manage tasks on a per-g
 - Create a group and invite teammates by email
 - Kanban board per group with drag-and-drop across To Do / In Progress / Done
 - Assign tasks to any group member
-- Dashboard showing total tasks, tasks by status, and tasks by assignee
+- Project dashboard: completion %, overdue/upcoming counts, status and workload charts, per-member progress, and a deadline list
+- Calendar view of tasks by due date, with filters and drag-to-reschedule
+- Timeline (Gantt) view with task start/due bars, milestones (owner-managed), and task dependencies
+- Board, Calendar, Timeline and Dashboard all use the same task records
+
+Task status for progress purposes comes from column position: the first column counts as "not started", the last as "done", and any others as "in progress".
 
 ## Project structure
 
@@ -101,7 +106,9 @@ npm run dev
 - **GroupMember** - join table with role (`OWNER` / `MEMBER`)
 - **GroupInvite** - pending/accepted/declined invite by email
 - **Column** - a board section (`To Do`, `In Progress`, `Done`), seeded automatically when a group is created
-- **Task** - belongs to a group and a column, optionally assigned to a member
+- **Task** - belongs to a group and a column, optionally assigned to a member, with optional `startDate` / `dueDate`
+- **TaskDependency** - "task depends on task" link within a group (cycles are rejected)
+- **Milestone** - a dated project checkpoint shown on the timeline
 
 ## Known issues
 

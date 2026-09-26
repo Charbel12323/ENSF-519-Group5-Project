@@ -1,124 +1,58 @@
 "use client";
-
 import { FormEvent, use, useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
-import BackLink from "@/components/BackLink";
+import GroupNav from "@/components/GroupNav";
+import GroupSettings from "@/components/GroupSettings";
 import { api } from "@/lib/api";
-import { getErrorMessage } from "@/lib/auth-context";
-import { GroupDetail } from "@/lib/types";
+import { getErrorMessage, useAuth } from "@/lib/auth-context";
+import { Activity, GroupDetail } from "@/lib/types";
+import { useLiveRefresh } from "@/lib/use-live-refresh";
 
 export default function GroupMembersPage({ params }: { params: Promise<{ groupId: string }> }) {
   const { groupId } = use(params);
+  const { user } = useAuth(); const router = useRouter();
   const [group, setGroup] = useState<GroupDetail | null>(null);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [email, setEmail] = useState("");
-  const [inviting, setInviting] = useState(false);
-
-  const refresh = useCallback(async () => {
+  const [busy, setBusy] = useState(false);
+  const [activity, setActivity] = useState<Activity[]>([]);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const load = useCallback(async () => {
     try {
-      const res = await api.get<{ group: GroupDetail }>(`/api/groups/${groupId}`);
-      setGroup(res.group);
-    } catch (err) {
-      setError(getErrorMessage(err));
-    } finally {
-      setLoading(false);
-    }
-  }, [groupId]);
-
-  useEffect(() => {
-    (async () => {
-      await refresh();
-    })();
-  }, [refresh]);
-
-  async function handleInvite(e: FormEvent) {
-    e.preventDefault();
-    if (!email.trim()) return;
-    setInviting(true);
-    setError(null);
-    setSuccess(null);
-    try {
-      await api.post(`/api/groups/${groupId}/invite`, { email: email.trim() });
-      setSuccess(`Invite sent to ${email.trim()}`);
-      setEmail("");
-    } catch (err) {
-      setError(getErrorMessage(err));
-    } finally {
-      setInviting(false);
-    }
+      setGroup((await api.get<{ group: GroupDetail }>(`/api/groups/${groupId}`)).group);
+      if (!expanded) { const data = await api.get<{ activity: Activity[]; nextCursor: string | null }>(`/api/groups/${groupId}/activity`); setActivity(data.activity); setCursor(data.nextCursor); }
+    } catch (err) { setError(getErrorMessage(err)); }
+  }, [groupId, expanded]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- State changes after network responses.
+  useEffect(() => { void load(); }, [load]); useLiveRefresh(load, busy);
+  async function act(work: () => Promise<unknown>, refresh = true) {
+    setBusy(true); setError(null); setSuccess(null);
+    try { await work(); if (refresh) await load(); } catch (err) { setError(getErrorMessage(err)); } finally { setBusy(false); }
   }
-
-  return (
-    <AppShell>
-      <BackLink href="/dashboard" label="Back to groups" />
-      <p className="mt-3 text-sm text-slate-500">{group?.name ?? "..."}</p>
-      <h1 className="mt-1 text-2xl font-semibold text-slate-900">Members</h1>
-
-      <form
-        onSubmit={handleInvite}
-        className="mt-6 flex items-end gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
-      >
-        <div className="flex-1">
-          <label htmlFor="invite-email" className="block text-sm font-medium text-slate-700">
-            Invite by email
-          </label>
-          <input
-            id="invite-email"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="teammate@university.edu"
-            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
-          />
-        </div>
-        <button
-          type="submit"
-          disabled={inviting}
-          className="rounded-md bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-60"
-        >
-          {inviting ? "Sending..." : "Send invite"}
-        </button>
-      </form>
-
-      {error && (
-        <div className="mt-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
-      )}
-      {success && (
-        <div className="mt-4 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-          {success}
-        </div>
-      )}
-
-      <div className="mt-8">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-          Current members
-        </h2>
-        {loading ? (
-          <p className="mt-3 text-sm text-slate-500">Loading...</p>
-        ) : (
-          <div className="mt-3 divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white shadow-sm">
-            {group?.members.map((member) => (
-              <div key={member.id} className="flex items-center justify-between px-4 py-3">
-                <div>
-                  <p className="text-sm font-medium text-slate-900">{member.user.name}</p>
-                  <p className="text-xs text-slate-500">{member.user.email}</p>
-                </div>
-                <span
-                  className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                    member.role === "OWNER"
-                      ? "bg-brand-50 text-brand-700"
-                      : "bg-slate-100 text-slate-600"
-                  }`}
-                >
-                  {member.role === "OWNER" ? "Owner" : "Member"}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </AppShell>
-  );
+  function invite(e: FormEvent) { e.preventDefault(); void act(async () => {
+    const result = await api.post<{ emailSent: boolean }>(`/api/groups/${groupId}/invite`, { email });
+    setSuccess(result.emailSent ? `Invitation emailed to ${email}` : "Invitation saved, but email delivery failed. Check SMTP configuration and send it again."); setEmail("");
+  }); }
+  const owner = group?.ownerId === user?.id;
+  return <AppShell>
+    <GroupNav groupId={groupId} groupName={group?.name} title="Members & settings" />
+    {error && <p className="error mt-4" role="alert">{error}</p>}{success && <p className="notice mt-4" role="status">{success}</p>}
+    {!group ? <p className="mt-5">{error ? "Unable to load this group." : "Loading group…"}</p> : <div className="mt-5 space-y-6">
+      {owner && <form className="panel flex flex-wrap items-end gap-3" onSubmit={invite}><label className="flex-1 text-sm">Invite by email<input className="field mt-1" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="teammate@example.com" /></label><button className="btn-primary" disabled={busy || !user?.emailVerified}>Send invitation</button></form>}
+      <section className="panel"><h2 className="font-semibold">Current members</h2><p className="mt-1 text-xs text-slate-500">Owners manage the group, invitations, columns, and labels. All members can collaborate on tasks.</p>
+        <ul className="mt-4 divide-y">{group.members.map((member) => <li key={member.id} className="flex flex-wrap items-center justify-between gap-2 py-3"><div><p className="text-sm font-medium">{member.user.name}</p><p className="text-xs text-slate-500">{member.user.email} · {member.role === "OWNER" ? "Owner" : "Member"}</p></div>
+          {owner && member.user.id !== user?.id && <div className="flex gap-2"><button className="btn" disabled={busy} onClick={() => { if (confirm(`Make ${member.user.name} the owner? You will become a regular member.`)) void act(() => api.post(`/api/groups/${groupId}/ownership`, { userId: member.user.id })); }}>Transfer ownership</button><button className="btn-danger" disabled={busy} onClick={() => { if (confirm(`Remove ${member.user.name}? Their assigned tasks will become unassigned.`)) void act(() => api.delete(`/api/groups/${groupId}/members/${member.user.id}`)); }}>Remove</button></div>}
+        </li>)}</ul>
+        {!owner ? <button className="btn-danger mt-3" disabled={busy} onClick={() => { if (confirm("Leave this group? Your tasks will become unassigned.")) void act(async () => { await api.post(`/api/groups/${groupId}/leave`); router.push("/dashboard"); }); }}>Leave group</button> : <p className="mt-3 text-xs text-slate-500">Transfer ownership to another member before leaving.</p>}
+      </section>
+      {owner && <GroupSettings group={group} busy={busy} act={act} />}
+      <section className="panel"><h2 className="font-semibold">Group activity</h2><ol className="mt-4 space-y-3">{activity.map((a) => <li key={a.id} className="text-sm"><strong>{a.actor.name}</strong> {a.message}<p className="text-xs text-slate-400">{new Date(a.createdAt).toLocaleString()}</p></li>)}</ol>
+        {cursor && <button className="btn mt-4" disabled={busy} onClick={() => void act(async () => { const data = await api.get<{ activity: Activity[]; nextCursor: string | null }>(`/api/groups/${groupId}/activity?cursor=${cursor}`); setExpanded(true); setActivity((old) => [...new Map([...old, ...data.activity].map((a) => [a.id, a])).values()]); setCursor(data.nextCursor); }, false)}>Load older activity</button>}
+        {expanded && <button className="btn ml-2 mt-4" onClick={() => setExpanded(false)}>Show latest activity</button>}
+      </section>
+    </div>}
+  </AppShell>;
 }

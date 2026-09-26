@@ -33,7 +33,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
             </div>
             <span className="text-base font-semibold tracking-tight text-slate-900">Boardly</span>
           </Link>
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center gap-4">
+            <Link href="/my-tasks" className="text-sm text-brand-600">My tasks</Link>
+            <Link href="/profile" className="text-sm text-brand-600">Profile</Link>
             <span className="text-sm text-slate-600">{user.name}</span>
             <button
               onClick={logout}
@@ -44,7 +46,10 @@ export default function AppShell({ children }: { children: ReactNode }) {
           </div>
         </div>
       </header>
-      <main className="mx-auto max-w-7xl px-6 py-8">{children}</main>
+      <main className="mx-auto max-w-7xl px-6 py-8">
+        {!user.emailVerified && <div className="notice mb-5">Verify your email to send and accept invitations. <Link className="underline" href="/profile">Manage email verification</Link></div>}
+        {children}
+      </main>
     </div>
   );
 }

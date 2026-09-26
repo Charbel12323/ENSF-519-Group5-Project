@@ -6,12 +6,15 @@ import authRoutes from "./routes/auth.routes";
 import groupRoutes from "./routes/groups.routes";
 import inviteRoutes from "./routes/invites.routes";
 import taskRoutes from "./routes/tasks.routes";
+import notificationRoutes from "./routes/notifications.routes";
 import { errorHandler } from "./middleware/errorHandler";
 
 export function createApp() {
   const app = express();
 
-  app.use(cors({ origin: env.corsOrigin }));
+  app.use(cors({ origin: env.corsOrigin, credentials: true }));
+  app.disable("x-powered-by");
+  app.use((_req, res, next) => { res.setHeader("Cache-Control", "no-store"); next(); });
   app.use(express.json());
 
   app.get("/health", (_req, res) => res.json({ status: "ok" }));
@@ -20,6 +23,7 @@ export function createApp() {
   app.use("/api/groups", groupRoutes);
   app.use("/api/invites", inviteRoutes);
   app.use("/api/tasks", taskRoutes);
+  app.use("/api/notifications", notificationRoutes);
 
   app.use((err: unknown, req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (err instanceof ZodError) {

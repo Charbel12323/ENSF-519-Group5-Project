@@ -1,147 +1,235 @@
 import { Response } from "express";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
+import { Db, inGroup, membership, publicUser, record } from "../lib/access";
+import { insertAt, normalizeTasks } from "../lib/order";
 import { HttpError } from "../middleware/errorHandler";
 import { AuthedRequest } from "../middleware/auth";
+import { validateDependencies } from "../lib/dependencies";
 
-const createTaskSchema = z.object({
-  title: z.string().min(1, "Title is required").max(200),
-  description: z.string().max(2000).optional().nullable(),
-  columnId: z.string().uuid(),
-  assigneeId: z.string().uuid().optional().nullable(),
+export const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((s) => {
+  const parsed = new Date(s); return !isNaN(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === s;
+}, "Use a valid date").transform((s) => new Date(s));
+const fields = z.object({
+  title: z.string().trim().min(1).max(200), description: z.string().trim().max(2000).nullable().optional(),
+  columnId: z.string().uuid(), assigneeId: z.string().uuid().nullable().optional(),
+  priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).optional(), dueDate: date.nullable().optional(),
+  startDate: date.nullable().optional(), labelIds: z.array(z.string().uuid()).max(30).optional(),
 });
+const update = fields.partial().extend({ order: z.number().int().min(0).optional(), dependencyIds: z.array(z.string().uuid()).max(50).optional() });
+export const taskInclude = {
+  assignee: { select: publicUser }, creator: { select: publicUser }, labels: true,
+  subtasks: { orderBy: { createdAt: "asc" as const } },
+  dependencies: { select: { dependsOnId: true } },
+  _count: { select: { comments: true, attachments: true } },
+};
+const attachmentSelect = { id: true, name: true, size: true, createdAt: true, uploaderId: true } as const;
+type TaskRequest = AuthedRequest<{ taskId: string; itemId: string }>;
 
-const updateTaskSchema = z.object({
-  title: z.string().min(1).max(200).optional(),
-  description: z.string().max(2000).optional().nullable(),
-  columnId: z.string().uuid().optional(),
-  order: z.number().int().min(0).optional(),
-  assigneeId: z.string().uuid().optional().nullable(),
-});
-
-async function requireMembership(groupId: string, userId: string) {
-  const membership = await prisma.groupMember.findUnique({
-    where: { groupId_userId: { groupId, userId } },
-  });
-  if (!membership) {
-    throw new HttpError(403, "You are not a member of this group");
-  }
-  return membership;
+async function taskAccess(taskId: string, userId: string) {
+  const task = await prisma.task.findUnique({ where: { id: taskId } });
+  if (!task) throw new HttpError(404, "Task not found");
+  await membership(prisma, task.groupId, userId);
+  return task;
 }
 
-const taskInclude = {
-  assignee: { select: { id: true, name: true, email: true } },
-  creator: { select: { id: true, name: true, email: true } },
-};
+async function mutate<T>(req: TaskRequest, action: (db: Db, task: NonNullable<Awaited<ReturnType<typeof taskAccess>>>) => Promise<T>) {
+  const existing = await taskAccess(req.params.taskId, req.userId!);
+  return inGroup(existing.groupId, req.userId!, false, async (db) => {
+    const task = await db.task.findUnique({ where: { id: existing.id } });
+    if (!task) throw new HttpError(404, "Task not found");
+    return action(db, task);
+  });
+}
+
+function validateDates(startDate: Date | null | undefined, dueDate: Date | null | undefined) {
+  if (startDate && dueDate && startDate > dueDate) throw new HttpError(400, "Start date must be on or before the due date");
+}
+
+async function validateRelations(db: Db, groupId: string, body: z.infer<typeof update>) {
+  if (body.columnId && !await db.column.findFirst({ where: { id: body.columnId, groupId } })) throw new HttpError(400, "Column must belong to this group");
+  if (body.assigneeId && !await db.groupMember.findUnique({ where: { groupId_userId: { groupId, userId: body.assigneeId } } })) throw new HttpError(400, "Assignee must be a group member");
+  if (body.labelIds) {
+    const count = await db.label.count({ where: { id: { in: body.labelIds }, groupId } });
+    if (count !== new Set(body.labelIds).size) throw new HttpError(400, "Labels must belong to this group");
+  }
+}
+
+const filters = z.object({
+  q: z.string().max(200).optional(), columnId: z.string().uuid().optional(),
+  assigneeId: z.union([z.string().uuid(), z.literal("unassigned")]).optional(),
+  priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).optional(), labelId: z.string().uuid().optional(),
+  due: z.enum(["overdue", "today", "week", "none"]).optional(),
+});
+function filterWhere(query: unknown): Prisma.TaskWhereInput {
+  const f = filters.parse(query);
+  const today = new Date(new Date().toISOString().slice(0, 10));
+  return {
+    ...(f.q ? { OR: [{ title: { contains: f.q, mode: "insensitive" } }, { description: { contains: f.q, mode: "insensitive" } }] } : {}),
+    ...(f.columnId ? { columnId: f.columnId } : {}),
+    ...(f.assigneeId ? { assigneeId: f.assigneeId === "unassigned" ? null : f.assigneeId } : {}),
+    ...(f.priority ? { priority: f.priority } : {}),
+    ...(f.labelId ? { labels: { some: { id: f.labelId } } } : {}),
+    ...(f.due ? { dueDate: f.due === "none" ? null : f.due === "overdue" ? { lt: today } : f.due === "today" ? today : { gte: today, lte: new Date(today.valueOf() + 7 * 86400000) } } : {}),
+  };
+}
 
 export async function listTasks(req: AuthedRequest<{ groupId: string }>, res: Response) {
-  const { groupId } = req.params;
-  await requireMembership(groupId, req.userId!);
-
-  const tasks = await prisma.task.findMany({
-    where: { groupId },
-    include: taskInclude,
-    orderBy: [{ columnId: "asc" }, { order: "asc" }],
-  });
-
+  await membership(prisma, req.params.groupId, req.userId!);
+  const tasks = await prisma.task.findMany({ where: { ...filterWhere(req.query), groupId: req.params.groupId },
+    include: taskInclude, orderBy: [{ columnId: "asc" }, { order: "asc" }, { id: "asc" }] });
   res.json({ tasks });
 }
 
-export async function createTask(req: AuthedRequest<{ groupId: string }>, res: Response) {
-  const { groupId } = req.params;
-  const body = createTaskSchema.parse(req.body);
-  const userId = req.userId!;
-  await requireMembership(groupId, userId);
-
-  const column = await prisma.column.findFirst({ where: { id: body.columnId, groupId } });
-  if (!column) {
-    throw new HttpError(404, "Column not found in this group");
-  }
-
-  if (body.assigneeId) {
-    const isMember = await prisma.groupMember.findUnique({
-      where: { groupId_userId: { groupId, userId: body.assigneeId } },
-    });
-    if (!isMember) {
-      throw new HttpError(400, "Assignee must be a member of this group");
-    }
-  }
-
-  const maxOrder = await prisma.task.aggregate({
-    where: { columnId: body.columnId },
-    _max: { order: true },
-  });
-
-  const task = await prisma.task.create({
-    data: {
-      title: body.title.trim(),
-      description: body.description?.trim() || null,
-      groupId,
-      columnId: body.columnId,
-      assigneeId: body.assigneeId ?? null,
-      creatorId: userId,
-      order: (maxOrder._max.order ?? -1) + 1,
-    },
-    include: taskInclude,
-  });
-
-  res.status(201).json({ task });
+export async function myTasks(req: AuthedRequest, res: Response) {
+  const tasks = await prisma.task.findMany({ where: { ...filterWhere(req.query), assigneeId: req.userId,
+    group: { members: { some: { userId: req.userId } } } },
+    include: { ...taskInclude, group: { select: { id: true, name: true } }, column: true },
+    orderBy: [{ dueDate: { sort: "asc", nulls: "last" } }, { createdAt: "desc" }] });
+  res.json({ tasks });
 }
 
-export async function updateTask(req: AuthedRequest<{ taskId: string }>, res: Response) {
-  const { taskId } = req.params;
-  const body = updateTaskSchema.parse(req.body);
-  const userId = req.userId!;
-
-  const existing = await prisma.task.findUnique({ where: { id: taskId } });
-  if (!existing) {
-    throw new HttpError(404, "Task not found");
-  }
-  await requireMembership(existing.groupId, userId);
-
-  if (body.columnId) {
-    const column = await prisma.column.findFirst({
-      where: { id: body.columnId, groupId: existing.groupId },
-    });
-    if (!column) {
-      throw new HttpError(404, "Column not found in this group");
-    }
-  }
-
-  if (body.assigneeId) {
-    const isMember = await prisma.groupMember.findUnique({
-      where: { groupId_userId: { groupId: existing.groupId, userId: body.assigneeId } },
-    });
-    if (!isMember) {
-      throw new HttpError(400, "Assignee must be a member of this group");
-    }
-  }
-
-  const task = await prisma.task.update({
-    where: { id: taskId },
-    data: {
-      title: body.title?.trim(),
-      description: body.description === undefined ? undefined : body.description?.trim() || null,
-      columnId: body.columnId,
-      order: body.order,
-      assigneeId: body.assigneeId === undefined ? undefined : body.assigneeId,
-    },
-    include: taskInclude,
-  });
-
+export async function getTask(req: TaskRequest, res: Response) {
+  await taskAccess(req.params.taskId, req.userId!);
+  const task = await prisma.task.findUniqueOrThrow({ where: { id: req.params.taskId }, include: {
+    ...taskInclude, comments: { include: { author: { select: publicUser } }, orderBy: { createdAt: "asc" } },
+    attachments: { select: attachmentSelect, orderBy: { createdAt: "desc" } },
+    activity: { include: { actor: { select: publicUser } }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 100 },
+  } });
   res.json({ task });
 }
 
-export async function deleteTask(req: AuthedRequest<{ taskId: string }>, res: Response) {
-  const { taskId } = req.params;
-  const userId = req.userId!;
+export async function createTask(req: AuthedRequest<{ groupId: string }>, res: Response) {
+  const body = fields.parse(req.body);
+  validateDates(body.startDate, body.dueDate);
+  const task = await inGroup(req.params.groupId, req.userId!, false, async (db) => {
+    await validateRelations(db, req.params.groupId, body);
+    await normalizeTasks(db, body.columnId);
+    const { labelIds, ...data } = body;
+    const task = await db.task.create({ data: { ...data, groupId: req.params.groupId, creatorId: req.userId!,
+      order: await db.task.count({ where: { columnId: body.columnId } }), labels: { connect: labelIds?.map((id) => ({ id })) } }, include: taskInclude });
+    await record(db, task.groupId, req.userId!, `Created task "${task.title}"`, task.id);
+    return task;
+  });
+  res.status(201).json({ task });
+}
 
-  const existing = await prisma.task.findUnique({ where: { id: taskId } });
-  if (!existing) {
-    throw new HttpError(404, "Task not found");
-  }
-  await requireMembership(existing.groupId, userId);
+export async function updateTask(req: TaskRequest, res: Response) {
+  const body = update.parse(req.body);
+  const task = await mutate(req, async (db, existing) => {
+    await validateRelations(db, existing.groupId, body);
+    validateDates(body.startDate === undefined ? existing.startDate : body.startDate, body.dueDate === undefined ? existing.dueDate : body.dueDate);
+    const { labelIds, order, dependencyIds, ...data } = body;
+    if (dependencyIds) {
+      const ids = [...new Set(dependencyIds)];
+      await validateDependencies(db, existing.groupId, existing.id, ids);
+      await db.taskDependency.deleteMany({ where: { taskId: existing.id } });
+      await db.taskDependency.createMany({ data: ids.map((dependsOnId) => ({ taskId: existing.id, dependsOnId })) });
+    }
+    const columnId = body.columnId ?? existing.columnId;
+    if (columnId !== existing.columnId || order !== undefined) {
+      const destination = await db.task.findMany({ where: { columnId, id: { not: existing.id } }, orderBy: [{ order: "asc" }, { id: "asc" }] });
+      await normalizeTasks(db, columnId, insertAt(destination, existing, order ?? destination.length).map((t) => t.id));
+      if (columnId !== existing.columnId) await normalizeTasks(db, existing.columnId);
+    }
+    const task = await db.task.update({ where: { id: existing.id }, data: { ...data,
+      ...(labelIds ? { labels: { set: labelIds.map((id) => ({ id })) } } : {}) }, include: taskInclude });
+    const changes = Object.keys(body).map((k) => ({ columnId: "status", assigneeId: "assignee", labelIds: "labels", dueDate: "due date", startDate: "start date", dependencyIds: "dependencies", order: "position" }[k] ?? k));
+    await record(db, task.groupId, req.userId!, `Updated ${changes.join(", ")} on "${task.title}"`, task.id);
+    return task;
+  });
+  res.json({ task });
+}
 
-  await prisma.task.delete({ where: { id: taskId } });
+export async function deleteTask(req: TaskRequest, res: Response) {
+  await mutate(req, async (db, task) => {
+    await record(db, task.groupId, req.userId!, `Deleted task "${task.title}"`);
+    await db.task.delete({ where: { id: task.id } });
+    await normalizeTasks(db, task.columnId);
+  });
+  res.status(204).send();
+}
+
+export async function saveSubtask(req: TaskRequest, res: Response) {
+  const body = z.object({ title: z.string().trim().min(1).max(200).optional(), completed: z.boolean().optional() }).parse(req.body);
+  const subtask = await mutate(req, async (db, task) => {
+    if (!req.params.itemId && !body.title) throw new HttpError(400, "Title is required");
+    const subtask = req.params.itemId ? await db.subtask.update({ where: { id: req.params.itemId, taskId: task.id }, data: body })
+      : await db.subtask.create({ data: { title: body.title!, taskId: task.id } });
+    await record(db, task.groupId, req.userId!, `${req.params.itemId ? "Updated" : "Added"} subtask "${subtask.title}"${body.completed === undefined ? "" : body.completed ? " (complete)" : " (incomplete)"}`, task.id);
+    return subtask;
+  });
+  res.json({ subtask });
+}
+
+export async function deleteSubtask(req: TaskRequest, res: Response) {
+  await mutate(req, async (db, task) => {
+    const subtask = await db.subtask.delete({ where: { id: req.params.itemId, taskId: task.id } });
+    await record(db, task.groupId, req.userId!, `Deleted subtask "${subtask.title}"`, task.id);
+  });
+  res.status(204).send();
+}
+
+export async function saveComment(req: TaskRequest, res: Response) {
+  const { body } = z.object({ body: z.string().trim().min(1).max(5000) }).parse(req.body);
+  const comment = await mutate(req, async (db, task) => {
+    if (req.params.itemId) {
+      const comment = await db.comment.findFirst({ where: { id: req.params.itemId, taskId: task.id } });
+      if (!comment) throw new HttpError(404, "Comment not found");
+      if (comment.authorId !== req.userId) throw new HttpError(403, "Only the author can edit a comment");
+    }
+    const comment = req.params.itemId ? await db.comment.update({ where: { id: req.params.itemId }, data: { body } })
+      : await db.comment.create({ data: { body, taskId: task.id, authorId: req.userId! } });
+    await record(db, task.groupId, req.userId!, req.params.itemId ? "Edited a comment" : "Added a comment", task.id);
+    return comment;
+  });
+  res.json({ comment });
+}
+
+export async function deleteComment(req: TaskRequest, res: Response) {
+  await mutate(req, async (db, task) => {
+    const comment = await db.comment.findFirst({ where: { id: req.params.itemId, taskId: task.id } });
+    if (!comment) throw new HttpError(404, "Comment not found");
+    const member = await membership(db, task.groupId, req.userId!);
+    if (comment.authorId !== req.userId && member.role !== "OWNER") throw new HttpError(403, "Only the author or group owner can delete a comment");
+    await db.comment.delete({ where: { id: comment.id } });
+    await record(db, task.groupId, req.userId!, "Deleted a comment", task.id);
+  });
+  res.status(204).send();
+}
+
+export async function uploadAttachment(req: TaskRequest, res: Response) {
+  if (!req.file) throw new HttpError(400, "Choose a file (maximum 5 MB)");
+  const file = req.file;
+  const attachment = await mutate(req, async (db, task) => {
+    if (await db.attachment.count({ where: { taskId: task.id } }) >= 20) throw new HttpError(400, "Maximum 20 attachments per task");
+    const name = file.originalname.replace(/[\\/\x00-\x1f\x7f]/g, "_").slice(0, 200) || "attachment";
+    const attachment = await db.attachment.create({ data: { name, size: file.size, content: new Uint8Array(file.buffer),
+      taskId: task.id, uploaderId: req.userId! }, select: attachmentSelect });
+    await record(db, task.groupId, req.userId!, `Attached ${name}`, task.id);
+    return attachment;
+  });
+  res.status(201).json({ attachment });
+}
+
+export async function downloadAttachment(req: TaskRequest, res: Response) {
+  await taskAccess(req.params.taskId, req.userId!);
+  const file = await prisma.attachment.findFirst({ where: { id: req.params.itemId, taskId: req.params.taskId } });
+  if (!file) throw new HttpError(404, "Attachment not found");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Cache-Control", "no-store");
+  res.attachment(file.name).type("application/octet-stream").send(Buffer.from(file.content));
+}
+
+export async function deleteAttachment(req: TaskRequest, res: Response) {
+  await mutate(req, async (db, task) => {
+    const file = await db.attachment.findFirst({ where: { id: req.params.itemId, taskId: task.id } });
+    if (!file) throw new HttpError(404, "Attachment not found");
+    const member = await membership(db, task.groupId, req.userId!);
+    if (file.uploaderId !== req.userId && member.role !== "OWNER") throw new HttpError(403, "Only the uploader or group owner can delete an attachment");
+    await db.attachment.delete({ where: { id: file.id } });
+    await record(db, task.groupId, req.userId!, `Removed attachment ${file.name}`, task.id);
+  });
   res.status(204).send();
 }
