@@ -1,3 +1,20 @@
+## Demo Video
+
+
+
+
+https://github.com/user-attachments/assets/05c6594d-cd0f-4ea7-8a39-436eacb2f535
+
+
+
+
+
+
+
+
+
+
+
 Boardly
 
 A simple Jira-style Kanban board built for a university group project.
