@@ -2,6 +2,9 @@ export interface User {
   id: string;
   name: string;
   email: string;
+  emailVerified?: boolean;
+  googleConnected?: boolean;
+  hasPassword?: boolean;
 }
 
 export interface GroupSummary {
@@ -31,6 +34,7 @@ export interface GroupDetail {
   ownerId: string;
   columns: Column[];
   members: GroupMember[];
+  labels: Label[];
 }
 
 export interface Task {
@@ -44,7 +48,21 @@ export interface Task {
   creator: User;
   createdAt: string;
   updatedAt: string;
+  priority: Priority;
+  dueDate: string | null;
+  labels: Label[];
+  subtasks: Subtask[];
+  _count: { comments: number; attachments: number };
 }
+
+export type Priority = "LOW" | "MEDIUM" | "HIGH" | "URGENT";
+export interface Label { id: string; name: string; color: string }
+export interface Subtask { id: string; title: string; completed: boolean }
+export interface Comment { id: string; body: string; author: User; authorId: string; createdAt: string; updatedAt: string }
+export interface Attachment { id: string; name: string; size: number; uploaderId: string; createdAt: string }
+export interface Activity { id: string; message: string; actor: User; createdAt: string; taskId: string | null }
+export interface TaskDetail extends Task { comments: Comment[]; attachments: Attachment[]; activity: Activity[] }
+export interface PersonalTask extends Task { group: { id: string; name: string }; column: Column }
 
 export interface Invite {
   id: string;

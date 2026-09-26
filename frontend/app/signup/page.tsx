@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth, getErrorMessage } from "@/lib/auth-context";
+import SocialLogin from "@/components/SocialLogin";
 
 export default function SignupPage() {
   const { signup } = useAuth();
@@ -101,6 +102,7 @@ export default function SignupPage() {
             {submitting ? "Creating account..." : "Create account"}
           </button>
         </form>
+        <SocialLogin />
 
         <p className="mt-4 text-center text-sm text-slate-600">
           Already have an account?{" "}

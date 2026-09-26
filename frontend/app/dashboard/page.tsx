@@ -6,6 +6,7 @@ import AppShell from "@/components/AppShell";
 import { api } from "@/lib/api";
 import { getErrorMessage } from "@/lib/auth-context";
 import { GroupSummary, Invite } from "@/lib/types";
+import { useLiveRefresh } from "@/lib/use-live-refresh";
 
 export default function DashboardOverviewPage() {
   const [groups, setGroups] = useState<GroupSummary[]>([]);
@@ -25,12 +26,14 @@ export default function DashboardOverviewPage() {
       ]);
       setGroups(groupsRes.groups);
       setInvites(invitesRes.invites);
+      setError(null);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
       setLoading(false);
     }
   }, []);
+  useLiveRefresh(refresh, creating);
 
   useEffect(() => {
     (async () => {

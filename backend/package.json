@@ -5,7 +5,7 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc && prisma generate",
+    "build": "prisma generate && tsc",
     "start": "node dist/index.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
@@ -19,6 +19,10 @@
     "dotenv": "^16.4.5",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.2",
+    "google-auth-library": "^10.0.0",
+    "nodemailer": "^7.0.0",
+    "multer": "^2.0.2",
+    "express-rate-limit": "^8.0.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
@@ -26,6 +30,8 @@
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.7",
+    "@types/nodemailer": "^7.0.0",
+    "@types/multer": "^2.0.0",
     "@types/node": "^20.14.0",
     "eslint": "^9.17.0",
     "prisma": "^6.19.3",

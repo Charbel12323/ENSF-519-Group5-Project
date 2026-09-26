@@ -3,12 +3,13 @@ import { env } from "../config/env";
 
 export interface TokenPayload {
   userId: string;
+  version: number;
 }
 
 export function signToken(payload: TokenPayload): string {
-  return jwt.sign(payload, env.jwtSecret, { expiresIn: "7d" });
+  return jwt.sign(payload, env.jwtSecret, { expiresIn: "7d", audience: "boardly" });
 }
 
 export function verifyToken(token: string): TokenPayload {
-  return jwt.verify(token, env.jwtSecret) as TokenPayload;
+  return jwt.verify(token, env.jwtSecret, { algorithms: ["HS256"], audience: "boardly" }) as TokenPayload;
 }

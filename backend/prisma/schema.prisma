@@ -22,7 +22,10 @@ model User {
   id           String   @id @default(uuid())
   name         String
   email        String   @unique
-  passwordHash String
+  passwordHash String?
+  emailVerifiedAt DateTime?
+  googleId String? @unique
+  authVersion Int @default(0)
   createdAt    DateTime @default(now())
 
   memberships    GroupMember[]
@@ -31,6 +34,11 @@ model User {
   createdTasks   Task[]         @relation("TaskCreator")
   sentInvites    GroupInvite[]  @relation("InviteSender")
   receivedInvites GroupInvite[] @relation("InviteRecipient")
+  tokens AuthToken[]
+  comments Comment[]
+  attachments Attachment[]
+  activity Activity[]
+  notifications Notification[]
 }
 
 model Group {
@@ -44,6 +52,9 @@ model Group {
   columns   Column[]
   tasks     Task[]
   invites   GroupInvite[]
+  labels Label[]
+  activity Activity[]
+  notifications Notification[]
 }
 
 model GroupMember {
@@ -80,6 +91,7 @@ model Column {
   groupId String
   name    String
   order   Int
+  isDone Boolean @default(false)
 
   group Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
   tasks Task[]
@@ -98,9 +110,125 @@ model Task {
   creatorId   String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  priority Priority @default(MEDIUM)
+  dueDate DateTime? @db.Date
+  archivedAt DateTime?
 
   group    Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
   column   Column @relation(fields: [columnId], references: [id], onDelete: Cascade)
   assignee User?  @relation("TaskAssignee", fields: [assigneeId], references: [id])
   creator  User   @relation("TaskCreator", fields: [creatorId], references: [id])
+  labels Label[]
+  subtasks Subtask[]
+  comments Comment[]
+  attachments Attachment[]
+  activity Activity[]
+  dependencies TaskDependency[] @relation("DependentTask")
+  dependents TaskDependency[] @relation("BlockingTask")
+  notifications Notification[]
+
+  @@index([groupId, columnId, order])
+  @@index([assigneeId])
+}
+
+model TaskDependency {
+  taskId String
+  dependsOnId String
+  task Task @relation("DependentTask", fields: [taskId], references: [id], onDelete: Cascade)
+  dependsOn Task @relation("BlockingTask", fields: [dependsOnId], references: [id], onDelete: Cascade)
+  @@id([taskId, dependsOnId])
+}
+
+model Notification {
+  id String @id @default(uuid())
+  recipientId String
+  groupId String
+  taskId String?
+  kind String
+  message String
+  createdAt DateTime @default(now())
+  readAt DateTime?
+  recipient User @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  task Task? @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  @@index([recipientId, createdAt])
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TokenPurpose {
+  VERIFY_EMAIL
+  RESET_PASSWORD
+  LOGIN
+}
+
+model AuthToken {
+  id String @id @default(uuid())
+  hash String @unique
+  purpose TokenPurpose
+  email String
+  expiresAt DateTime
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, purpose])
+}
+
+model Label {
+  id String @id @default(uuid())
+  name String
+  color String @default("#6366f1")
+  groupId String
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  tasks Task[]
+  @@unique([groupId, name])
+}
+
+model Subtask {
+  id String @id @default(uuid())
+  title String
+  completed Boolean @default(false)
+  createdAt DateTime @default(now())
+  taskId String
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+}
+
+model Comment {
+  id String @id @default(uuid())
+  body String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  taskId String
+  authorId String
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  author User @relation(fields: [authorId], references: [id])
+}
+
+model Attachment {
+  id String @id @default(uuid())
+  name String
+  size Int
+  content Bytes
+  createdAt DateTime @default(now())
+  taskId String
+  uploaderId String
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  uploader User @relation(fields: [uploaderId], references: [id])
+}
+
+model Activity {
+  id String @id @default(uuid())
+  message String
+  createdAt DateTime @default(now())
+  groupId String
+  taskId String?
+  actorId String
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  task Task? @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  actor User @relation(fields: [actorId], references: [id])
+  @@index([groupId, createdAt])
 }

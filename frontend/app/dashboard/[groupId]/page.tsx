@@ -7,6 +7,7 @@ import BackLink from "@/components/BackLink";
 import { api } from "@/lib/api";
 import { getErrorMessage } from "@/lib/auth-context";
 import { DashboardStats, GroupDetail } from "@/lib/types";
+import { useLiveRefresh } from "@/lib/use-live-refresh";
 
 export default function GroupDashboardPage({ params }: { params: Promise<{ groupId: string }> }) {
   const { groupId } = use(params);
@@ -23,12 +24,14 @@ export default function GroupDashboardPage({ params }: { params: Promise<{ group
       ]);
       setGroup(groupRes.group);
       setStats(statsRes);
+      setError(null);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
       setLoading(false);
     }
   }, [groupId]);
+  useLiveRefresh(load);
 
   useEffect(() => {
     (async () => {

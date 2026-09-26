@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth, getErrorMessage } from "@/lib/auth-context";
+import SocialLogin from "@/components/SocialLogin";
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -84,6 +85,8 @@ export default function LoginPage() {
             {submitting ? "Signing in..." : "Sign in"}
           </button>
         </form>
+        <Link href="/forgot-password" className="mt-3 block text-center text-sm text-brand-600">Forgot password?</Link>
+        <SocialLogin />
 
         <p className="mt-4 text-center text-sm text-slate-600">
           Don&apos;t have an account?{" "}
