@@ -2,7 +2,7 @@ import { Router } from "express";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
-import { requireAuth } from "../middleware/auth";
+import { AuthedRequest, requireAuth } from "../middleware/auth";
 
 const router = Router();
 router.use(requireAuth);
@@ -12,7 +12,7 @@ function visible(userId: string): Prisma.NotificationWhereInput {
     { kind: "INVITE", group: { invites: { some: { recipientId: userId, status: "PENDING" } } } },
   ] };
 }
-router.get("/", async (req, res) => {
+router.get("/", async (req: AuthedRequest, res) => {
   const { cursor } = z.object({ cursor: z.string().uuid().optional() }).parse(req.query);
   const where = visible(req.userId!);
   const [notifications, unreadCount] = await Promise.all([
@@ -22,7 +22,7 @@ router.get("/", async (req, res) => {
   ]);
   res.json({ notifications, unreadCount, nextCursor: notifications.length === 30 ? notifications[29].id : null });
 });
-router.patch("/read", async (req, res) => {
+router.patch("/read", async (req: AuthedRequest, res) => {
   const { id } = z.object({ id: z.string().uuid().optional() }).parse(req.body);
   await prisma.notification.updateMany({ where: { ...visible(req.userId!), readAt: null, ...(id ? { id } : {}) }, data: { readAt: new Date() } });
   res.json({ ok: true });
