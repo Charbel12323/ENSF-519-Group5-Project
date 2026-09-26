@@ -3,6 +3,7 @@
 import { use, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
+import BackLink from "@/components/BackLink";
 import { api } from "@/lib/api";
 import { getErrorMessage } from "@/lib/auth-context";
 import { DashboardStats, GroupDetail } from "@/lib/types";
@@ -58,14 +59,10 @@ export default function GroupDashboardPage({ params }: { params: Promise<{ group
 
   return (
     <AppShell>
-      <div className="flex items-center justify-between">
+      <BackLink href="/dashboard" label="Back to groups" />
+      <div className="mt-3 flex items-center justify-between">
         <div>
-          <p className="text-sm text-slate-500">
-            <Link href="/dashboard" className="hover:text-brand-600">
-              Groups
-            </Link>{" "}
-            / {group.name}
-          </p>
+          <p className="text-sm text-slate-500">{group.name}</p>
           <h1 className="mt-1 text-2xl font-semibold text-slate-900">Dashboard</h1>
         </div>
         <div className="flex gap-3 text-sm font-medium text-brand-600">

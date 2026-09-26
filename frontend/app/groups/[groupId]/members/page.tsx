@@ -1,8 +1,8 @@
 "use client";
 
 import { FormEvent, use, useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import AppShell from "@/components/AppShell";
+import BackLink from "@/components/BackLink";
 import { api } from "@/lib/api";
 import { getErrorMessage } from "@/lib/auth-context";
 import { GroupDetail } from "@/lib/types";
@@ -52,12 +52,8 @@ export default function GroupMembersPage({ params }: { params: Promise<{ groupId
 
   return (
     <AppShell>
-      <p className="text-sm text-slate-500">
-        <Link href="/dashboard" className="hover:text-brand-600">
-          Groups
-        </Link>{" "}
-        / {group?.name ?? "..."}
-      </p>
+      <BackLink href="/dashboard" label="Back to groups" />
+      <p className="mt-3 text-sm text-slate-500">{group?.name ?? "..."}</p>
       <h1 className="mt-1 text-2xl font-semibold text-slate-900">Members</h1>
 
       <form
