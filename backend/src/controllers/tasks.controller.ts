@@ -6,8 +6,6 @@ import { Db, inGroup, membership, publicUser, record } from "../lib/access";
 import { insertAt, normalizeTasks } from "../lib/order";
 import { HttpError } from "../middleware/errorHandler";
 import { AuthedRequest } from "../middleware/auth";
-import { notify, mentionedEmails } from "../lib/notifications";
-import { validateDependencies, assertCanComplete } from "../lib/dependencies";
 
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((s) => {
   const parsed = new Date(s); return !isNaN(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === s;
@@ -18,12 +16,10 @@ const fields = z.object({
   priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).optional(), dueDate: date.nullable().optional(),
   labelIds: z.array(z.string().uuid()).max(30).optional(),
 });
-const update = fields.partial().extend({ order: z.number().int().min(0).optional(), archived: z.boolean().optional(), dependencyIds: z.array(z.string().uuid()).max(50).optional() });
+const update = fields.partial().extend({ order: z.number().int().min(0).optional() });
 export const taskInclude = {
   assignee: { select: publicUser }, creator: { select: publicUser }, labels: true,
   subtasks: { orderBy: { createdAt: "asc" as const } },
-  column: true,
-  dependencies: { include: { dependsOn: { select: { id: true, title: true, archivedAt: true, column: { select: { isDone: true } } } } } },
   _count: { select: { comments: true, attachments: true } },
 };
 const attachmentSelect = { id: true, name: true, size: true, createdAt: true, uploaderId: true } as const;
@@ -59,13 +55,11 @@ const filters = z.object({
   assigneeId: z.union([z.string().uuid(), z.literal("unassigned")]).optional(),
   priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).optional(), labelId: z.string().uuid().optional(),
   due: z.enum(["overdue", "today", "week", "none"]).optional(),
-  archived: z.enum(["true", "false"]).optional(),
 });
 function filterWhere(query: unknown): Prisma.TaskWhereInput {
   const f = filters.parse(query);
   const today = new Date(new Date().toISOString().slice(0, 10));
   return {
-    archivedAt: f.archived === "true" ? { not: null } : null,
     ...(f.q ? { OR: [{ title: { contains: f.q, mode: "insensitive" } }, { description: { contains: f.q, mode: "insensitive" } }] } : {}),
     ...(f.columnId ? { columnId: f.columnId } : {}),
     ...(f.assigneeId ? { assigneeId: f.assigneeId === "unassigned" ? null : f.assigneeId } : {}),
@@ -109,7 +103,6 @@ export async function createTask(req: AuthedRequest<{ groupId: string }>, res: R
     const task = await db.task.create({ data: { ...data, groupId: req.params.groupId, creatorId: req.userId!,
       order: await db.task.count({ where: { columnId: body.columnId } }), labels: { connect: labelIds?.map((id) => ({ id })) } }, include: taskInclude });
     await record(db, task.groupId, req.userId!, `Created task "${task.title}"`, task.id);
-    await notify(db, task.assigneeId, req.userId!, task.groupId, "ASSIGNED", `You were assigned "${task.title}"`, task.id);
     return task;
   });
   res.status(201).json({ task });
@@ -119,41 +112,17 @@ export async function updateTask(req: TaskRequest, res: Response) {
   const body = update.parse(req.body);
   const task = await mutate(req, async (db, existing) => {
     await validateRelations(db, existing.groupId, body);
-    const { labelIds, order, archived, dependencyIds, ...data } = body;
+    const { labelIds, order, ...data } = body;
     const columnId = body.columnId ?? existing.columnId;
-    if (dependencyIds) await validateDependencies(db, existing.groupId, existing.id, dependencyIds);
-    const blockers = dependencyIds ?? (await db.taskDependency.findMany({ where: { taskId: existing.id } })).map((d) => d.dependsOnId);
-    const column = await db.column.findUniqueOrThrow({ where: { id: columnId } });
-    if (column.isDone) await assertCanComplete(db, blockers);
-    if (dependencyIds) {
-      await db.taskDependency.deleteMany({ where: { taskId: existing.id } });
-      await db.taskDependency.createMany({ data: dependencyIds.map((dependsOnId) => ({ taskId: existing.id, dependsOnId })) });
-    }
     if (columnId !== existing.columnId || order !== undefined) {
       const destination = await db.task.findMany({ where: { columnId, id: { not: existing.id } }, orderBy: [{ order: "asc" }, { id: "asc" }] });
       await normalizeTasks(db, columnId, insertAt(destination, existing, order ?? destination.length).map((t) => t.id));
       if (columnId !== existing.columnId) await normalizeTasks(db, existing.columnId);
     }
     const task = await db.task.update({ where: { id: existing.id }, data: { ...data,
-      ...(archived !== undefined ? { archivedAt: archived ? existing.archivedAt ?? new Date() : null } : {}),
       ...(labelIds ? { labels: { set: labelIds.map((id) => ({ id })) } } : {}) }, include: taskInclude });
-    const changes: string[] = [];
-    if (columnId !== existing.columnId) {
-      const previous = await db.column.findUniqueOrThrow({ where: { id: existing.columnId } });
-      changes.push(`status: ${previous.name} → ${column.name}`);
-    }
-    if (body.assigneeId !== undefined && body.assigneeId !== existing.assigneeId) {
-      const previous = existing.assigneeId ? await db.user.findUnique({ where: { id: existing.assigneeId } }) : null;
-      changes.push(`assignee: ${previous?.name ?? "Unassigned"} → ${task.assignee?.name ?? "Unassigned"}`);
-      await notify(db, task.assigneeId, req.userId!, task.groupId, "ASSIGNED", `You were assigned "${task.title}"`, task.id);
-    }
-    if (body.dueDate !== undefined && body.dueDate?.valueOf() !== existing.dueDate?.valueOf()) changes.push(`due date: ${existing.dueDate?.toISOString().slice(0, 10) ?? "None"} → ${task.dueDate?.toISOString().slice(0, 10) ?? "None"}`);
-    if (archived !== undefined && !!existing.archivedAt !== archived) changes.push(archived ? "archived" : "restored from archive");
-    if (dependencyIds) changes.push("dependencies");
-    for (const key of ["title", "description", "priority"] as const) if (body[key] !== undefined && body[key] !== existing[key]) changes.push(key);
-    if (labelIds) changes.push("labels");
-    if (order !== undefined && order !== existing.order) changes.push("position");
-    if (changes.length) await record(db, task.groupId, req.userId!, `Updated "${task.title}" — ${changes.join("; ")}`, task.id);
+    const changes = Object.keys(body).map((k) => ({ columnId: "status", assigneeId: "assignee", labelIds: "labels", dueDate: "due date", order: "position" }[k] ?? k));
+    await record(db, task.groupId, req.userId!, `Updated ${changes.join(", ")} on "${task.title}"`, task.id);
     return task;
   });
   res.json({ task });
@@ -191,20 +160,14 @@ export async function deleteSubtask(req: TaskRequest, res: Response) {
 export async function saveComment(req: TaskRequest, res: Response) {
   const { body } = z.object({ body: z.string().trim().min(1).max(5000) }).parse(req.body);
   const comment = await mutate(req, async (db, task) => {
-    let previousBody = "";
     if (req.params.itemId) {
       const comment = await db.comment.findFirst({ where: { id: req.params.itemId, taskId: task.id } });
       if (!comment) throw new HttpError(404, "Comment not found");
       if (comment.authorId !== req.userId) throw new HttpError(403, "Only the author can edit a comment");
-      previousBody = comment.body;
     }
     const comment = req.params.itemId ? await db.comment.update({ where: { id: req.params.itemId }, data: { body } })
       : await db.comment.create({ data: { body, taskId: task.id, authorId: req.userId! } });
     await record(db, task.groupId, req.userId!, req.params.itemId ? "Edited a comment" : "Added a comment", task.id);
-    const previousMentions = mentionedEmails(previousBody);
-    const emails = [...mentionedEmails(body)].filter((email) => !previousMentions.has(email));
-    const members = await db.groupMember.findMany({ where: { groupId: task.groupId, user: { email: { in: emails } } } });
-    for (const member of members) await notify(db, member.userId, req.userId!, task.groupId, "MENTION", `You were mentioned in a comment on "${task.title}"`, task.id);
     return comment;
   });
   res.json({ comment });
