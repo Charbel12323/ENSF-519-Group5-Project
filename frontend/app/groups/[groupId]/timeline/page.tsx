@@ -1,8 +1,9 @@
 "use client";
-import { use, useMemo, useState } from "react";
+import { use, useEffect, useMemo, useState } from "react";
 import AppShell from "@/components/AppShell";
 import GroupNav from "@/components/GroupNav";
 import TaskModal from "@/components/TaskModal";
+import CalendarView from "@/components/CalendarView";
 import MilestoneModal, { MilestoneValues } from "@/components/MilestoneModal";
 import { useAuth } from "@/lib/auth-context";
 import { addDays, dateKey, daysBetween, formatDay, isOverdue, parseKey, STATUS_LABEL, STATUS_PROGRESS, STATUS_STYLE, statusResolver, todayKey } from "@/lib/status";
@@ -19,7 +20,18 @@ const last = (task: Task) => (task.dueDate ?? task.startDate)!.slice(0, 10);
 export default function TimelinePage({ params }: { params: Promise<{ groupId: string }> }) {
   const { groupId } = use(params);
   const { user } = useAuth();
-  const { group, tasks, milestones, loading, error, setError, modal, setModal, saving, load, save, remove, saveMilestone: persistMilestone, deleteMilestone: destroyMilestone } = useGroupTasks(groupId, { milestones: true });
+  const data = useGroupTasks(groupId, { milestones: true });
+  const { group, tasks, milestones, loading, error, setError, modal, setModal, saving, load, save, remove, saveMilestone: persistMilestone, deleteMilestone: destroyMilestone } = data;
+  const [view, setView] = useState<"gantt" | "calendar">("gantt");
+  // Honour ?view=calendar (old Calendar links redirect here) and keep the URL in sync.
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- read the URL once after hydration.
+  useEffect(() => { if (new URLSearchParams(window.location.search).get("view") === "calendar") setView("calendar"); }, []);
+  const switchView = (next: "gantt" | "calendar") => {
+    setView(next);
+    const url = new URL(window.location.href);
+    if (next === "calendar") url.searchParams.set("view", "calendar"); else url.searchParams.delete("view");
+    window.history.replaceState(null, "", url);
+  };
   const [zoom, setZoom] = useState<Zoom>("Week");
   const [milestoneModal, setMilestoneModal] = useState<{ milestone?: Milestone } | null>(null);
   const today = todayKey();
@@ -74,6 +86,13 @@ export default function TimelinePage({ params }: { params: Promise<{ groupId: st
       actions={isOwner && <button className="btn-primary" disabled={saving} onClick={() => { setError(null); setMilestoneModal({}); }}>+ Milestone</button>} />
     {error && <p className="error mt-4" role="alert">{error}</p>}
     {loading ? <p className="mt-4 text-sm text-slate-500">Loading timeline…</p> : group && <>
+      <div role="tablist" aria-label="Timeline view" className="relative mt-5 inline-grid grid-cols-2 rounded-lg border border-slate-300 bg-white p-1 shadow-sm">
+        {/* Sliding highlight behind the selected option */}
+        <span aria-hidden="true" className={`absolute inset-y-1 left-1 w-[calc(50%-0.25rem)] rounded-md bg-brand-600 shadow transition-transform duration-300 ease-out motion-reduce:transition-none ${view === "calendar" ? "translate-x-full" : "translate-x-0"}`} />
+        {([["gantt", "Gantt chart"], ["calendar", "Calendar"]] as const).map(([key, label]) => <button key={key} role="tab" aria-selected={view === key} onClick={() => switchView(key)}
+          className={`relative z-10 rounded-md px-5 py-1.5 text-sm font-medium transition-colors duration-300 active:scale-95 ${view === key ? "text-white" : "text-slate-600 hover:text-slate-900"}`}>{label}</button>)}
+      </div>
+      {view === "calendar" ? <div key="calendar" className="animate-view-in"><CalendarView data={data} /></div> : <div key="gantt" className="animate-view-in">
       <div className="mt-5 grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end">
         <div className="panel py-4">
           <div className="flex items-center justify-between text-sm"><span className="text-slate-500">Overall project progress</span><span className="font-semibold tabular-nums">{overallProgress}%</span></div>
@@ -81,7 +100,7 @@ export default function TimelinePage({ params }: { params: Promise<{ groupId: st
           <p className="mt-2 text-xs text-slate-500">Progress per task: To Do 0%, In Progress 50%, Done 100%. {unscheduled > 0 && `${unscheduled} task${unscheduled === 1 ? " has" : "s have"} no dates and ${unscheduled === 1 ? "is" : "are"} not shown.`}</p>
         </div>
         <div role="group" aria-label="Zoom" className="flex rounded-md border border-slate-300 bg-white p-0.5">
-          {(Object.keys(ZOOMS) as Zoom[]).map((z) => <button key={z} aria-pressed={zoom === z} onClick={() => setZoom(z)} className={`rounded px-3 py-1.5 text-sm ${zoom === z ? "bg-brand-600 font-medium text-white" : "text-slate-600 hover:bg-slate-50"}`}>{z}</button>)}
+          {(Object.keys(ZOOMS) as Zoom[]).map((z) => <button key={z} aria-pressed={zoom === z} onClick={() => setZoom(z)} className={`rounded px-3 py-1.5 text-sm transition-colors duration-200 active:scale-95 ${zoom === z ? "bg-brand-600 font-medium text-white" : "text-slate-600 hover:bg-slate-50"}`}>{z}</button>)}
         </div>
       </div>
 
@@ -130,7 +149,7 @@ export default function TimelinePage({ params }: { params: Promise<{ groupId: st
                 </button>
                 <div className="relative" style={{ width: chartW, ...gridStyle }}>
                   {ranged ? <button onClick={() => setModal({ mode: "edit", task })} title={tip}
-                    className={`absolute top-2 flex h-6 items-center overflow-hidden rounded-md text-left text-[11px] font-medium text-white shadow-sm ring-1 ring-inset ring-black/10 ${STATUS_STYLE[s].bar} bg-opacity-40`}
+                    className={`absolute top-2 flex h-6 items-center overflow-hidden rounded-md transition duration-150 hover:brightness-110 hover:shadow-md active:scale-y-90 text-left text-[11px] font-medium text-white shadow-sm ring-1 ring-inset ring-black/10 ${STATUS_STYLE[s].bar} bg-opacity-40`}
                     style={{ left: x(start), width: Math.max((daysBetween(start, end) + 1) * ppd, 6) }}>
                     <span className={`absolute inset-y-0 left-0 ${STATUS_STYLE[s].bar}`} style={{ width: `${STATUS_PROGRESS[category]}%` }} />
                     <span className="relative truncate px-2 text-slate-900 mix-blend-normal [text-shadow:0_0_2px_white]">{task.title}</span>
@@ -160,6 +179,8 @@ export default function TimelinePage({ params }: { params: Promise<{ groupId: st
         <p className="mt-2 text-xs text-slate-500">Click a task to edit its dates, status or dependencies. Tasks with only one date appear as a dot.</p>
       </>}
 
+      </div>}
+
       <section className="panel mt-6">
         <div className="flex items-center justify-between gap-3"><h2 className="text-sm font-semibold text-slate-900">Milestones</h2>{!isOwner && <p className="text-xs text-slate-500">Only the group owner can manage milestones.</p>}</div>
         {milestones.length === 0 ? <p className="mt-3 text-sm text-slate-500">No milestones yet.{isOwner && " Use “+ Milestone” to mark key project dates."}</p> :
@@ -174,7 +195,7 @@ export default function TimelinePage({ params }: { params: Promise<{ groupId: st
           })}</ul>}
       </section>
 
-      {modal && <TaskModal mode={modal.mode} task={modal.mode === "edit" ? modal.task : undefined} defaults={modal.mode === "create" ? modal.defaults : undefined}
+      {view === "gantt" && modal && <TaskModal mode={modal.mode} task={modal.mode === "edit" ? modal.task : undefined} defaults={modal.mode === "create" ? modal.defaults : undefined}
         columns={group.columns} members={group.members} labels={group.labels} tasks={tasks} owner={isOwner} saving={saving}
         onClose={() => setModal(null)} onSave={save} onDelete={modal.mode === "edit" ? remove : undefined} onChanged={load} />}
       {milestoneModal && <MilestoneModal milestone={milestoneModal.milestone} defaultDate={dateKey(new Date())} saving={saving}

@@ -7,6 +7,7 @@ import { useLiveRefresh } from "./use-live-refresh";
 import { taskRequestBody, TaskFormValues } from "@/components/TaskModal";
 import { MilestoneValues } from "@/components/MilestoneModal";
 
+export type GroupTasks = ReturnType<typeof useGroupTasks>;
 export type TaskModalState = { mode: "create"; defaults: Partial<TaskFormValues> } | { mode: "edit"; task: Task } | null;
 
 // Shared data layer for the calendar and timeline views: the same group tasks the board

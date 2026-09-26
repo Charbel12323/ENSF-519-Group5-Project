@@ -42,8 +42,8 @@ export default function TaskModal({ mode, task, columns, members, labels, owner,
     if (values.startDate && values.dueDate && values.startDate > values.dueDate) { setError("Start date must be on or before the due date"); return; }
     try { await onSave(values); } catch (err) { setError(err instanceof Error ? err.message : "Unable to save"); }
   }
-  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget && !saving) onClose(); }}>
-    <div ref={panel} role="dialog" aria-modal="true" aria-labelledby="task-heading" className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white p-6 shadow-xl">
+  return <div className="fixed inset-0 z-50 flex animate-fade-in items-center justify-center bg-slate-900/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget && !saving) onClose(); }}>
+    <div ref={panel} role="dialog" aria-modal="true" aria-labelledby="task-heading" className="animate-pop-in max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white p-6 shadow-xl">
       <div className="flex items-center justify-between"><h2 id="task-heading" className="text-lg font-semibold">{mode === "create" ? "New task" : "Task details"}</h2><button className="btn" disabled={saving} onClick={onClose}>Close</button></div>
       <form onSubmit={submit} className="mt-4 space-y-4">
         {error && <p role="alert" className="error">{error}</p>}

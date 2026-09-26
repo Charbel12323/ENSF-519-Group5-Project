@@ -182,10 +182,6 @@ export default function DashboardOverviewPage() {
                     Board
                   </Link>
                   <span className="text-slate-300">&middot;</span>
-                  <Link href={`/groups/${group.id}/calendar`} className="hover:text-brand-700">
-                    Calendar
-                  </Link>
-                  <span className="text-slate-300">&middot;</span>
                   <Link href={`/groups/${group.id}/timeline`} className="hover:text-brand-700">
                     Timeline
                   </Link>
