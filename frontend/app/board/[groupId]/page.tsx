@@ -4,6 +4,7 @@ import { use, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { DragDropContext, Droppable, DropResult } from "@hello-pangea/dnd";
 import AppShell from "@/components/AppShell";
+import BackLink from "@/components/BackLink";
 import TaskCard from "@/components/TaskCard";
 import TaskModal, { TaskFormValues } from "@/components/TaskModal";
 import { api } from "@/lib/api";
@@ -166,14 +167,10 @@ export default function BoardPage({ params }: { params: Promise<{ groupId: strin
 
   return (
     <AppShell>
-      <div className="flex items-center justify-between">
+      <BackLink href="/dashboard" label="Back to groups" />
+      <div className="mt-3 flex items-center justify-between">
         <div>
-          <p className="text-sm text-slate-500">
-            <Link href="/dashboard" className="hover:text-brand-600">
-              Groups
-            </Link>{" "}
-            / {group.name}
-          </p>
+          <p className="text-sm text-slate-500">{group.name}</p>
           <h1 className="mt-1 text-2xl font-semibold text-slate-900">Board</h1>
         </div>
         <div className="flex gap-3 text-sm font-medium text-brand-600">
