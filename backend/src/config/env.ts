@@ -23,4 +23,6 @@ export const env = {
   mailFrom: process.env.MAIL_FROM ?? "Boardly <noreply@boardly.local>",
   googleClientId: process.env.GOOGLE_CLIENT_ID ?? "",
   googleClientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
+  // Max auth requests (signup/login/verify/reset) per IP per 15 minutes. Raise it for e2e test runs.
+  authRateLimit: Number(process.env.AUTH_RATE_LIMIT ?? 30),
 };
