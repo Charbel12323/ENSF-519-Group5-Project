@@ -9,10 +9,11 @@ Covers sign up / sign in, creating a group, inviting a teammate, creating, assig
 # AUTH_RATE_LIMIT raises the auth limit (default 30 requests / 15 min) so repeated runs aren't blocked.
 # PowerShell: $env:AUTH_RATE_LIMIT = "1000"; docker compose --profile mail up -d --build
 AUTH_RATE_LIMIT=1000 docker compose --profile mail up -d --build
+   
 
 cd tests/e2e
 pip install -r requirements.txt
-pytest -v
+pytest -m -v
 ```
 
 Requires Google Chrome. Selenium Manager downloads a matching chromedriver automatically.
