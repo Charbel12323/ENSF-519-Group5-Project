@@ -18,6 +18,7 @@ from selenium import webdriver
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support.events import AbstractEventListener, EventFiringWebDriver
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
@@ -26,6 +27,8 @@ BASE_URL = os.environ.get("BOARDLY_URL", "http://localhost:3000").rstrip("/")
 # "localhost" tries IPv6 first, which is refused and can stall the request.
 MAILPIT_URL = os.environ.get("MAILPIT_URL", "http://127.0.0.1:8025").rstrip("/")
 HEADLESS = os.environ.get("HEADLESS", "1") != "0"
+# Seconds to pause after each click, typed value and page load, so a person can follow along.
+SLOW_MO = float(os.environ.get("SLOW_MO", "0"))
 TIMEOUT = 15
 
 
@@ -48,8 +51,23 @@ def driver():
         options.add_argument("--headless=new")
     options.add_argument("--window-size=1600,1000")
     drv = webdriver.Chrome(options=options)
+    if SLOW_MO:
+        drv = EventFiringWebDriver(drv, _SlowMo())
     yield drv
+    if SLOW_MO:
+        time.sleep(SLOW_MO * 3)  # leave the final screen up briefly
     drv.quit()
+
+
+class _SlowMo(AbstractEventListener):
+    def after_navigate_to(self, url, driver):
+        time.sleep(SLOW_MO)
+
+    def after_click(self, element, driver):
+        time.sleep(SLOW_MO)
+
+    def after_change_value_of(self, element, driver):
+        time.sleep(SLOW_MO)
 
 
 @pytest.fixture(scope="session")
