@@ -4,9 +4,10 @@ import { requireAuth } from "../middleware/auth";
 import { forgotPassword, resetPassword, resendVerification, verifyEmail, updateProfile, exchangeLogin } from "../controllers/auth.controller";
 import { providers, startGoogle, googleCallback } from "../controllers/google.controller";
 import { rateLimit } from "express-rate-limit";
+import { env } from "../config/env";
 
 const router = Router();
-const limiter = rateLimit({ windowMs: 15 * 60000, limit: 30, standardHeaders: "draft-8", legacyHeaders: false,
+const limiter = rateLimit({ windowMs: 15 * 60000, limit: env.authRateLimit, standardHeaders: "draft-8", legacyHeaders: false,
   message: { error: "Too many attempts. Please try again in 15 minutes" } });
 router.get("/me", requireAuth, me);
 router.get("/providers", providers);

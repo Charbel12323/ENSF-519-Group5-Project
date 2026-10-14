@@ -35,6 +35,7 @@ services:
       MAIL_FROM: ${MAIL_FROM:-Boardly <noreply@boardly.local>}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      AUTH_RATE_LIMIT: ${AUTH_RATE_LIMIT:-30}
     ports:
       - "4000:4000"
     depends_on:
