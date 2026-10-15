@@ -1,4 +1,5 @@
 """Assign a task to a teammate."""
+import pytest
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import Select
@@ -8,6 +9,7 @@ from conftest import (
 )
 
 
+@pytest.mark.needs("test_03_invite_teammate", "test_04_create_task")
 def test_assign_task(driver, teammate, group_id):
     open_board(driver, group_id)
     clickable(driver, By.XPATH, card_xpath(OVERDUE_TASK[0])).click()

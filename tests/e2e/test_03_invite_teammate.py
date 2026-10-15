@@ -7,6 +7,7 @@ from conftest import (
 
 
 def test_invite_teammate(driver, owner, teammate, group_id):
+    sign_in(driver, owner)
     driver.get(f"{BASE_URL}/groups/{group_id}/members")
     email_input = visible(driver, By.CSS_SELECTOR, "input[type='email'][placeholder='teammate@example.com']")
     email_input.send_keys(teammate.email)

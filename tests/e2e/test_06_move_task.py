@@ -1,4 +1,5 @@
 """Move tasks across Kanban columns."""
+import pytest
 from selenium.webdriver.common.by import By
 
 from conftest import (
@@ -6,6 +7,7 @@ from conftest import (
 )
 
 
+@pytest.mark.needs("test_04_create_task")
 def test_move_task_across_columns(driver, group_id):
     open_board(driver, group_id)
     drag_with_keyboard(driver, OVERDUE_TASK[0], steps_right=1)

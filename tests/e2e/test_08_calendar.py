@@ -1,4 +1,5 @@
 """Calendar deadlines and overdue tasks."""
+import pytest
 from selenium.webdriver.common.by import By
 
 from conftest import (
@@ -6,6 +7,7 @@ from conftest import (
 )
 
 
+@pytest.mark.needs("test_04_create_task")
 def test_calendar_deadlines_and_overdue(driver, group_id):
     driver.get(f"{BASE_URL}/groups/{group_id}/timeline?view=calendar")
     button(driver, "Today")
