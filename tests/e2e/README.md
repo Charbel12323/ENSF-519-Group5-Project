@@ -50,23 +50,42 @@ Remove-Item Env:HEADLESS, Env:SLOW_MO
 
 ### Recording a run
 
-- Press **Win + Alt + R** to start and stop a screen recording (Xbox Game Bar), or use OBS.
+- Record the whole screen with the Snipping Tool (**Win + Shift + R**, then select the full screen) or OBS.
+  Game Bar (**Win + Alt + R**) only records the window that was focused when you started, so it misses the Chrome window the tests open.
 - Start recording before running the command so the browser opening is captured.
-- Each test depends on the earlier ones, so run the whole suite. Either record the whole run (about a minute and a half with `SLOW_MO = "1"`) or trim the video to one test afterwards. `test_06_move_task.py` (dragging cards across the board) and `test_04_create_task.py` are the most visual.
+- To record one flow, run just its file, for example `python -m pytest -v test_03_invite_teammate.py`.
+  You can also list a few files, such as `test_02_create_group.py test_03_invite_teammate.py` to show creating a group and inviting a teammate.
+  See [How the suite is organised](#how-the-suite-is-organised) for which files can run on their own.
 
 ## Environment variables
 
-| Variable          | Default                 | Purpose                                              |
-|-------------------|-------------------------|------------------------------------------------------|
-| `BOARDLY_URL`     | `http://localhost:3000` | Frontend URL                                         |
-| `MAILPIT_URL`     | `http://127.0.0.1:8025` | Mailpit web/API URL                                  |
-| `HEADLESS`        | `1`                     | Set to `0` to show the browser                       |
-| `SLOW_MO`         | `0`                     | Seconds to pause after each click, input and page load |
-| `AUTH_RATE_LIMIT` | `30`                    | Backend auth requests allowed per IP per 15 minutes (set when starting Docker) |
+| Variable          | Default                     | Purpose                                                                                 |
+|-------------------|-----------------------------|-----------------------------------------------------------------------------------------|
+| `BOARDLY_URL`     | `http://localhost:3000`     | Frontend URL                                                                            |
+| `BOARDLY_API_URL` | `http://127.0.0.1:4000/api` | Backend API URL, used to set up accounts and the group when a test file runs on its own |
+| `MAILPIT_URL`     | `http://127.0.0.1:8025`     | Mailpit web/API URL                                                                     |
+| `HEADLESS`        | `1`                         | Set to `0` to show the browser                                                          |
+| `SLOW_MO`         | `0`                         | Seconds to pause after each click, input and page load                                  |
+| `AUTH_RATE_LIMIT` | `30`                        | Backend auth requests allowed per IP per 15 minutes (set when starting Docker)          |
 
 ## How the suite is organised
 
-There is one file per flow (`test_01_auth.py` … `test_08_calendar.py`). The number prefixes make pytest run them in order, and each file builds on the ones before it, so run the whole folder. A file run on its own skips its tests, because the group it needs hasn't been created. Shared helpers and test data live in `conftest.py`. Every run creates fresh accounts with random emails, so you can re-run them against the same database.
+There is one file per flow (`test_01_auth.py` … `test_08_calendar.py`), and the number prefixes make pytest run them in order.
+Shared helpers and test data live in `conftest.py`.
+Every run creates fresh accounts with random emails, so you can re-run them against the same database.
+
+Tests 01 to 04 can run on their own.
+If the accounts or the group they need weren't created by an earlier test in the same run, `conftest.py` creates them through the backend API (verifying the emails through Mailpit), so the browser only shows the flow being tested.
+
+Tests 05 to 08 work on the tasks created by test 04, so they are marked with `@pytest.mark.needs(...)`.
+They are skipped unless the files they depend on passed earlier in the same run:
+
+| File | Needs |
+|------|-------|
+| `test_05_assign_task.py` | `test_03`, `test_04` |
+| `test_06_move_task.py` | `test_04` |
+| `test_07_dashboard.py` | `test_05`, `test_06` |
+| `test_08_calendar.py` | `test_04` |
 
 ## Troubleshooting
 

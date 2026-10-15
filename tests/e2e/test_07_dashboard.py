@@ -1,4 +1,5 @@
 """Dashboard counts."""
+import pytest
 from selenium.webdriver.common.by import By
 
 from conftest import (
@@ -6,6 +7,7 @@ from conftest import (
 )
 
 
+@pytest.mark.needs("test_05_assign_task", "test_06_move_task")
 def test_dashboard_counts(driver, teammate, group_id):
     driver.get(f"{BASE_URL}/dashboard/{group_id}")
     visible(driver, By.XPATH, "//p[normalize-space()='Project completion']")

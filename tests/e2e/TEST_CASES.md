@@ -28,21 +28,28 @@ Automated end-to-end tests for **Boardly**, a Kanban-style project board, writte
    ```powershell
    $env:HEADLESS = "0"; $env:SLOW_MO = "1"; python -m pytest -v
    ```
+5. To run a single test case, pass its script, for example:
+   ```powershell
+   python -m pytest -v test_03_invite_teammate.py
+   ```
 
-The test cases run in order (TC-01 → TC-08) and share one browser session. Each one builds on the data created by the ones before it: for example, TC-05 assigns the task created in TC-04. Every run creates new accounts with random emails, so the suite can be re-run at any time.
+When run together, the test cases run in order (TC-01 → TC-08) and share one browser session.
+TC-01 to TC-04 can also run on their own: any accounts or group they need that an earlier test didn't create are set up through the backend API first, so the browser only shows the flow being tested.
+TC-05 to TC-08 work on the tasks created in TC-04, so they only run after the test cases listed in the summary below have passed in the same run.
+Every run creates new accounts with random emails, so the suite can be re-run at any time.
 
 ## Summary
 
-| ID | Test case | Script |
-|---|---|---|
-| TC-01 | Sign up and sign in | `test_01_auth.py` |
-| TC-02 | Create a group (project) | `test_02_create_group.py` |
-| TC-03 | Invite a teammate | `test_03_invite_teammate.py` |
-| TC-04 | Create a task | `test_04_create_task.py` |
-| TC-05 | Assign a task | `test_05_assign_task.py` |
-| TC-06 | Move a task across Kanban columns | `test_06_move_task.py` |
-| TC-07 | Verify dashboard counts | `test_07_dashboard.py` |
-| TC-08 | Verify calendar deadlines and overdue tasks | `test_08_calendar.py` |
+| ID | Test case | Script | Runs after |
+|---|---|---|---|
+| TC-01 | Sign up and sign in | `test_01_auth.py` | Runs on its own |
+| TC-02 | Create a group (project) | `test_02_create_group.py` | Runs on its own |
+| TC-03 | Invite a teammate | `test_03_invite_teammate.py` | Runs on its own |
+| TC-04 | Create a task | `test_04_create_task.py` | Runs on its own |
+| TC-05 | Assign a task | `test_05_assign_task.py` | TC-03, TC-04 |
+| TC-06 | Move a task across Kanban columns | `test_06_move_task.py` | TC-04 |
+| TC-07 | Verify dashboard counts | `test_07_dashboard.py` | TC-05, TC-06 |
+| TC-08 | Verify calendar deadlines and overdue tasks | `test_08_calendar.py` | TC-04 |
 
 ---
 
@@ -81,26 +88,26 @@ from conftest import (
 )
 
 
-def test_sign_up_and_sign_in(driver, owner, teammate):
-    sign_up(driver, owner)
-    verify_email(driver, owner)
+def test_sign_up_and_sign_in(driver, new_owner, new_teammate):
+    sign_up(driver, new_owner)
+    verify_email(driver, new_owner)
 
     sign_out(driver)
-    sign_in(driver, owner)
-    assert owner.name in driver.page_source
+    sign_in(driver, new_owner)
+    assert new_owner.name in driver.page_source
 
     # Wrong password is rejected.
     sign_out(driver)
     driver.get(f"{BASE_URL}/login")
-    visible(driver, By.ID, "email").send_keys(owner.email)
+    visible(driver, By.ID, "email").send_keys(new_owner.email)
     driver.find_element(By.ID, "password").send_keys("not-the-password")
     button(driver, "Sign in").click()
     visible(driver, By.XPATH, "//div[contains(@class,'bg-red-50')]")
     assert "/login" in driver.current_url
 
     # The teammate also needs a verified account to accept invitations later.
-    sign_up(driver, teammate)
-    verify_email(driver, teammate)
+    sign_up(driver, new_teammate)
+    verify_email(driver, new_teammate)
 ```
 
 ---
@@ -164,7 +171,7 @@ Checks that a group owner can invite another user by email, that the invited use
 
 ### Steps
 
-1. As the owner, open the group's **Members & settings** page.
+1. Sign in as the owner and open the group's **Members & settings** page.
 2. Enter the teammate's email in **Invite by email** and click **Send invitation**.
 3. Sign in as the teammate. On **Your groups**, find the pending invite and click **Accept**.
 4. Sign in as the owner again and open **Members & settings**.
@@ -187,6 +194,7 @@ from conftest import (
 
 
 def test_invite_teammate(driver, owner, teammate, group_id):
+    sign_in(driver, owner)
     driver.get(f"{BASE_URL}/groups/{group_id}/members")
     email_input = visible(driver, By.CSS_SELECTOR, "input[type='email'][placeholder='teammate@example.com']")
     email_input.send_keys(teammate.email)
@@ -218,7 +226,7 @@ Checks that tasks can be created from the board, including a due date, and that 
 
 ### Steps
 
-1. Open the group's board.
+1. Sign in as the owner and open the group's board.
 2. In the **To Do** column click **+ Add task**.
 3. Enter the title *Write test plan*, set **Due date** to yesterday's date and click **Create task**.
 4. Repeat for *Prepare demo* (due 3 days from today) and *Set up repo* (no due date).
@@ -237,11 +245,12 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 
 from conftest import (
-    DONE_TASK, OVERDUE_TASK, UPCOMING_TASK, card_xpath, column, column_count, open_board, set_react_value, visible, wait,
+    DONE_TASK, OVERDUE_TASK, UPCOMING_TASK, card_xpath, column, column_count, open_board, set_react_value, sign_in, visible, wait,
 )
 
 
-def test_create_task(driver, group_id):
+def test_create_task(driver, owner, group_id):
+    sign_in(driver, owner)
     open_board(driver, group_id)
     for title, due in (OVERDUE_TASK, UPCOMING_TASK, DONE_TASK):
         column(driver, "To Do").find_element(By.XPATH, ".//button[normalize-space()='+ Add task']").click()
@@ -286,6 +295,7 @@ Checks that a task can be assigned to a group member from the task details dialo
 
 ```python
 """Assign a task to a teammate."""
+import pytest
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import Select
@@ -295,6 +305,7 @@ from conftest import (
 )
 
 
+@pytest.mark.needs("test_03_invite_teammate", "test_04_create_task")
 def test_assign_task(driver, teammate, group_id):
     open_board(driver, group_id)
     clickable(driver, By.XPATH, card_xpath(OVERDUE_TASK[0])).click()
@@ -339,6 +350,7 @@ Checks that cards can be dragged between Kanban columns and that the new column 
 
 ```python
 """Move tasks across Kanban columns."""
+import pytest
 from selenium.webdriver.common.by import By
 
 from conftest import (
@@ -346,6 +358,7 @@ from conftest import (
 )
 
 
+@pytest.mark.needs("test_04_create_task")
 def test_move_task_across_columns(driver, group_id):
     open_board(driver, group_id)
     drag_with_keyboard(driver, OVERDUE_TASK[0], steps_right=1)
@@ -392,6 +405,7 @@ Checks that the group dashboard's statistics match the tasks on the board: total
 
 ```python
 """Dashboard counts."""
+import pytest
 from selenium.webdriver.common.by import By
 
 from conftest import (
@@ -399,6 +413,7 @@ from conftest import (
 )
 
 
+@pytest.mark.needs("test_05_assign_task", "test_06_move_task")
 def test_dashboard_counts(driver, teammate, group_id):
     driver.get(f"{BASE_URL}/dashboard/{group_id}")
     visible(driver, By.XPATH, "//p[normalize-space()='Project completion']")
@@ -449,6 +464,7 @@ Checks that the calendar shows each task on its due date, marks past-due unfinis
 
 ```python
 """Calendar deadlines and overdue tasks."""
+import pytest
 from selenium.webdriver.common.by import By
 
 from conftest import (
@@ -456,6 +472,7 @@ from conftest import (
 )
 
 
+@pytest.mark.needs("test_04_create_task")
 def test_calendar_deadlines_and_overdue(driver, group_id):
     driver.get(f"{BASE_URL}/groups/{group_id}/timeline?view=calendar")
     button(driver, "Today")
@@ -498,11 +515,13 @@ import json
 import os
 import re
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
 from dataclasses import dataclass
 from datetime import date, timedelta
+from pathlib import Path
 
 import pytest
 from selenium import webdriver
@@ -514,6 +533,8 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
 BASE_URL = os.environ.get("BOARDLY_URL", "http://localhost:3000").rstrip("/")
+# Used to set up accounts and the group directly when a test file runs on its own.
+API_URL = os.environ.get("BOARDLY_API_URL", "http://127.0.0.1:4000/api").rstrip("/")
 # 127.0.0.1 rather than localhost: docker-compose binds Mailpit to IPv4 only, and on Windows
 # "localhost" tries IPv6 first, which is refused and can stall the request.
 MAILPIT_URL = os.environ.get("MAILPIT_URL", "http://127.0.0.1:8025").rstrip("/")
@@ -528,6 +549,7 @@ class Account:
     name: str
     email: str
     password: str = "Password123!"
+    verified: bool = False
 
 
 def new_account(prefix: str) -> Account:
@@ -562,13 +584,27 @@ class _SlowMo(AbstractEventListener):
 
 
 @pytest.fixture(scope="session")
-def owner() -> Account:
+def new_owner() -> Account:
+    """The group owner before signing up. test_01 signs it up through the browser."""
     return new_account("owner")
 
 
 @pytest.fixture(scope="session")
-def teammate() -> Account:
+def new_teammate() -> Account:
     return new_account("teammate")
+
+
+@pytest.fixture
+def owner(new_owner) -> Account:
+    """The owner with a verified account, set up through the API if test_01 didn't run."""
+    ensure_verified(new_owner)
+    return new_owner
+
+
+@pytest.fixture
+def teammate(new_teammate) -> Account:
+    ensure_verified(new_teammate)
+    return new_teammate
 
 
 _STATE: dict = {}
@@ -581,10 +617,35 @@ def state() -> dict:
 
 
 @pytest.fixture
-def group_id(state) -> str:
+def group_id(state, owner) -> str:
+    """The group test_02 created, or a new one made through the API if test_02 didn't run."""
     if "group_id" not in state:
-        pytest.skip("Needs the group created in test_02_create_group.py; run the whole suite")
+        token = _api("POST", "/auth/login", {"email": owner.email, "password": owner.password})["token"]
+        state["group_id"] = _api("POST", "/groups", {"name": GROUP_NAME}, token)["group"]["id"]
     return state["group_id"]
+
+
+# ---------- test ordering ----------
+# Tests that work on tasks made by earlier files declare it with @pytest.mark.needs("test_04_create_task", ...)
+# and are skipped unless those files passed earlier in the same run.
+
+_PASSED: set = set()
+
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "needs(*files): skip unless these earlier test files passed in this run")
+
+
+def pytest_runtest_logreport(report):
+    if report.when == "call" and report.passed:
+        _PASSED.add(Path(report.nodeid.split("::")[0]).stem)
+
+
+def pytest_runtest_setup(item):
+    marker = item.get_closest_marker("needs")
+    missing = [name for name in marker.args if name not in _PASSED] if marker else []
+    if missing:
+        pytest.skip(f"Needs {', '.join(missing)} to pass first in the same run")
 
 
 # ---------- generic helpers ----------
@@ -688,6 +749,33 @@ def verify_email(driver, account: Account):
     driver.get(verification_link(account.email))
     button(driver, "Verify email").click()
     visible(driver, By.XPATH, "//*[@role='status'][contains(., 'Your email is verified')]")
+    account.verified = True
+
+
+def _api(method: str, path: str, body: dict, token: str | None = None):
+    headers = {"Content-Type": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(f"{API_URL}{path}", data=json.dumps(body).encode(), headers=headers, method=method)
+    with urllib.request.urlopen(req, timeout=10) as res:
+        return json.loads(res.read())
+
+
+def ensure_verified(account: Account):
+    """Sign up and verify `account` through the API, unless test_01 already did it in the browser."""
+    if account.verified:
+        return
+    credentials = {"email": account.email, "password": account.password}
+    try:
+        user = _api("POST", "/auth/signup", {"name": account.name, **credentials})["user"]
+    except urllib.error.HTTPError as err:
+        if err.code != 409:  # 409: already signed up, e.g. by a test_01 that failed before verifying
+            raise
+        user = _api("POST", "/auth/login", credentials)["user"]
+    if not user["emailVerified"]:
+        token = verification_link(account.email).split("#token=", 1)[1]
+        _api("POST", "/auth/verify-email", {"token": token})
+    account.verified = True
 
 
 # ---------- shared test data ----------

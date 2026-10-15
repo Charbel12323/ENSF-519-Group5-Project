@@ -7,11 +7,13 @@ import json
 import os
 import re
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
 from dataclasses import dataclass
 from datetime import date, timedelta
+from pathlib import Path
 
 import pytest
 from selenium import webdriver
@@ -23,6 +25,8 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
 BASE_URL = os.environ.get("BOARDLY_URL", "http://localhost:3000").rstrip("/")
+# Used to set up accounts and the group directly when a test file runs on its own.
+API_URL = os.environ.get("BOARDLY_API_URL", "http://127.0.0.1:4000/api").rstrip("/")
 # 127.0.0.1 rather than localhost: docker-compose binds Mailpit to IPv4 only, and on Windows
 # "localhost" tries IPv6 first, which is refused and can stall the request.
 MAILPIT_URL = os.environ.get("MAILPIT_URL", "http://127.0.0.1:8025").rstrip("/")
@@ -37,6 +41,7 @@ class Account:
     name: str
     email: str
     password: str = "Password123!"
+    verified: bool = False
 
 
 def new_account(prefix: str) -> Account:
@@ -71,13 +76,27 @@ class _SlowMo(AbstractEventListener):
 
 
 @pytest.fixture(scope="session")
-def owner() -> Account:
+def new_owner() -> Account:
+    """The group owner before signing up. test_01 signs it up through the browser."""
     return new_account("owner")
 
 
 @pytest.fixture(scope="session")
-def teammate() -> Account:
+def new_teammate() -> Account:
     return new_account("teammate")
+
+
+@pytest.fixture
+def owner(new_owner) -> Account:
+    """The owner with a verified account, set up through the API if test_01 didn't run."""
+    ensure_verified(new_owner)
+    return new_owner
+
+
+@pytest.fixture
+def teammate(new_teammate) -> Account:
+    ensure_verified(new_teammate)
+    return new_teammate
 
 
 _STATE: dict = {}
@@ -90,10 +109,35 @@ def state() -> dict:
 
 
 @pytest.fixture
-def group_id(state) -> str:
+def group_id(state, owner) -> str:
+    """The group test_02 created, or a new one made through the API if test_02 didn't run."""
     if "group_id" not in state:
-        pytest.skip("Needs the group created in test_02_create_group.py; run the whole suite")
+        token = _api("POST", "/auth/login", {"email": owner.email, "password": owner.password})["token"]
+        state["group_id"] = _api("POST", "/groups", {"name": GROUP_NAME}, token)["group"]["id"]
     return state["group_id"]
+
+
+# ---------- test ordering ----------
+# Tests that work on tasks made by earlier files declare it with @pytest.mark.needs("test_04_create_task", ...)
+# and are skipped unless those files passed earlier in the same run.
+
+_PASSED: set = set()
+
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "needs(*files): skip unless these earlier test files passed in this run")
+
+
+def pytest_runtest_logreport(report):
+    if report.when == "call" and report.passed:
+        _PASSED.add(Path(report.nodeid.split("::")[0]).stem)
+
+
+def pytest_runtest_setup(item):
+    marker = item.get_closest_marker("needs")
+    missing = [name for name in marker.args if name not in _PASSED] if marker else []
+    if missing:
+        pytest.skip(f"Needs {', '.join(missing)} to pass first in the same run")
 
 
 # ---------- generic helpers ----------
@@ -197,6 +241,33 @@ def verify_email(driver, account: Account):
     driver.get(verification_link(account.email))
     button(driver, "Verify email").click()
     visible(driver, By.XPATH, "//*[@role='status'][contains(., 'Your email is verified')]")
+    account.verified = True
+
+
+def _api(method: str, path: str, body: dict, token: str | None = None):
+    headers = {"Content-Type": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(f"{API_URL}{path}", data=json.dumps(body).encode(), headers=headers, method=method)
+    with urllib.request.urlopen(req, timeout=10) as res:
+        return json.loads(res.read())
+
+
+def ensure_verified(account: Account):
+    """Sign up and verify `account` through the API, unless test_01 already did it in the browser."""
+    if account.verified:
+        return
+    credentials = {"email": account.email, "password": account.password}
+    try:
+        user = _api("POST", "/auth/signup", {"name": account.name, **credentials})["user"]
+    except urllib.error.HTTPError as err:
+        if err.code != 409:  # 409: already signed up, e.g. by a test_01 that failed before verifying
+            raise
+        user = _api("POST", "/auth/login", credentials)["user"]
+    if not user["emailVerified"]:
+        token = verification_link(account.email).split("#token=", 1)[1]
+        _api("POST", "/auth/verify-email", {"token": token})
+    account.verified = True
 
 
 # ---------- shared test data ----------

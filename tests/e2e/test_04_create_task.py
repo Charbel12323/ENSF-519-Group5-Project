@@ -3,11 +3,12 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 
 from conftest import (
-    DONE_TASK, OVERDUE_TASK, UPCOMING_TASK, card_xpath, column, column_count, open_board, set_react_value, visible, wait,
+    DONE_TASK, OVERDUE_TASK, UPCOMING_TASK, card_xpath, column, column_count, open_board, set_react_value, sign_in, visible, wait,
 )
 
 
-def test_create_task(driver, group_id):
+def test_create_task(driver, owner, group_id):
+    sign_in(driver, owner)
     open_board(driver, group_id)
     for title, due in (OVERDUE_TASK, UPCOMING_TASK, DONE_TASK):
         column(driver, "To Do").find_element(By.XPATH, ".//button[normalize-space()='+ Add task']").click()
