@@ -30,6 +30,11 @@ test-results/
 playwright-report/
 blob-report/
 
+# Python bytecode and test caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
 # Local database data and backups (keep Prisma schema and migrations tracked)
 pgdata/
 db_data/
