@@ -33,6 +33,11 @@ MAILPIT_URL = os.environ.get("MAILPIT_URL", "http://127.0.0.1:8025").rstrip("/")
 HEADLESS = os.environ.get("HEADLESS", "1") != "0"
 # Seconds to pause after each click, typed value and page load, so a person can follow along.
 SLOW_MO = float(os.environ.get("SLOW_MO", "0"))
+# Set by tests/e2e/Dockerfile so the image's Chromium and chromedriver are used instead of a local Chrome.
+CHROME_BIN = os.environ.get("CHROME_BIN")
+CHROMEDRIVER = os.environ.get("CHROMEDRIVER")
+# Chrome's sandbox and its default /dev/shm usage don't work inside a Docker container.
+IN_CONTAINER = os.environ.get("E2E_IN_CONTAINER") == "1"
 TIMEOUT = 15
 
 
@@ -55,7 +60,13 @@ def driver():
     if HEADLESS:
         options.add_argument("--headless=new")
     options.add_argument("--window-size=1600,1000")
-    drv = webdriver.Chrome(options=options)
+    if CHROME_BIN:
+        options.binary_location = CHROME_BIN
+    if IN_CONTAINER:
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+    service = webdriver.ChromeService(executable_path=CHROMEDRIVER) if CHROMEDRIVER else None
+    drv = webdriver.Chrome(options=options, service=service)
     if SLOW_MO:
         drv = EventFiringWebDriver(drv, _SlowMo())
     yield drv

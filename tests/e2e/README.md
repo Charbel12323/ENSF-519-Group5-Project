@@ -57,6 +57,26 @@ Remove-Item Env:HEADLESS, Env:SLOW_MO
   You can also list a few files, such as `test_02_create_group.py test_03_invite_teammate.py` to show creating a group and inviting a teammate.
   See [How the suite is organised](#how-the-suite-is-organised) for which files can run on their own.
 
+## Running in Docker (how CI runs it)
+
+The suite can also run entirely in Docker, with headless Chromium in a container, so nothing but Docker is needed.
+This is what the Jenkins pipeline does.
+From the repo root:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.ci.yml --profile mail --profile e2e build
+docker compose -f docker-compose.yml -f docker-compose.ci.yml --profile mail up -d --wait
+docker compose -f docker-compose.yml -f docker-compose.ci.yml --profile mail --profile e2e run --rm e2e
+docker compose -f docker-compose.yml -f docker-compose.ci.yml --profile mail --profile e2e down -v
+```
+
+- `docker-compose.ci.yml` publishes no ports, so it doesn't clash with a stack you already have running on 3000/4000.
+  Use a different `COMPOSE_PROJECT_NAME` to keep it separate from your normal containers.
+- The browser reaches the app by service name (`http://frontend:3000`), so the frontend image is built to call `http://backend:4000`.
+- The JUnit report is written to `test-results/e2e.xml`.
+- Pass file names after `e2e` to run only some tests, for example `run --rm e2e test_01_auth.py`.
+- The image sets `CHROME_BIN`, `CHROMEDRIVER` and `E2E_IN_CONTAINER=1`, which `conftest.py` uses to pick the bundled Chromium and turn off Chrome's sandbox.
+
 ## Environment variables
 
 | Variable          | Default                     | Purpose                                                                                 |
