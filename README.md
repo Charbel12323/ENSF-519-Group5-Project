@@ -36,7 +36,10 @@ Task status for progress purposes comes from column position: the first column c
 ```
 backend/     Express API, Prisma schema and migrations
 frontend/    Next.js App Router frontend
+tests/e2e/   Selenium end-to-end tests
 docker-compose.yml
+docker-compose.ci.yml   CI overrides for running the Selenium suite in Docker
+Jenkinsfile  CI pipeline for pull requests
 ```
 
 ## Running it with Docker Compose
@@ -96,6 +99,31 @@ cp .env.example .env
 npm install
 npm run dev
 ```
+
+## Tests and CI
+
+Unit tests use Vitest and live next to the code they test (`*.test.ts`).
+Run them from `backend/` or `frontend/`:
+
+```bash
+npm test
+```
+
+The backend runs `prisma generate` before its tests, so a fresh checkout works without a database.
+
+The Selenium suite is described in [tests/e2e/README.md](tests/e2e/README.md).
+
+Every pull request is checked by Jenkins using the `Jenkinsfile` in the repo root.
+It runs these checks, and the PR can only go green when all of them pass:
+
+1. ESLint for the backend and the frontend.
+2. TypeScript typecheck for the frontend.
+3. Unit tests for both packages.
+4. Docker image builds for the backend, the frontend and the Selenium runner.
+5. The full Selenium suite against the freshly built images.
+
+Unit and Selenium results show up as JUnit reports on the Jenkins build.
+The Jenkins agent needs Docker with Compose v2.24 or newer, and the Jenkins user must be in the `docker` group.
 
 ## Environment variables
 
