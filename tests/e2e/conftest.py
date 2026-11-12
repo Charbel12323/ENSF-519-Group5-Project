@@ -314,14 +314,28 @@ def stat_tile(driver, label):
     return int(visible(driver, By.XPATH, f"//div[contains(@class,'panel')][p[normalize-space()='{label}']]/p[2]").text)
 
 
+_DND_ANNOUNCEMENT = "[id^='rfd-announcement-']"
+
+
 def drag_with_keyboard(driver, title, steps_right):
-    """@hello-pangea/dnd supports keyboard dragging: Space to lift, arrows to move, Space to drop."""
+    """@hello-pangea/dnd supports keyboard dragging: Space to lift, arrows to move, Space to drop.
+
+    Each key waits for the library's screen-reader announcement for that step instead of a fixed
+    pause, so a slow or busy machine can't make a key press land before the previous step is done.
+    """
     card = visible(driver, By.XPATH, card_xpath(title))
     driver.execute_script("arguments[0].focus();", card)
-    actions = ActionChains(driver).send_keys(Keys.SPACE).pause(0.4)
+
+    def press(key, announcement):
+        driver.execute_script(f"document.querySelectorAll(\"{_DND_ANNOUNCEMENT}\").forEach(e => e.textContent = '')")
+        ActionChains(driver).send_keys(key).perform()
+        wait(driver).until(lambda d: announcement in d.execute_script(
+            f"return [...document.querySelectorAll(\"{_DND_ANNOUNCEMENT}\")].map(e => e.textContent).join(' ')"))
+
+    press(Keys.SPACE, "You have lifted")
     for _ in range(steps_right):
-        actions.send_keys(Keys.ARROW_RIGHT).pause(0.4)
-    actions.send_keys(Keys.SPACE).perform()
+        press(Keys.ARROW_RIGHT, "You have moved")
+    press(Keys.SPACE, "You have dropped")
 
 
 def calendar_chip(driver, title):
