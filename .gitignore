@@ -17,6 +17,9 @@ next-env.d.ts
 *.p12
 *.pfx
 
+# Local planning notes
+plan.md
+
 # Downloaded tooling, caches, logs, and reports
 .tools/
 .cache/
