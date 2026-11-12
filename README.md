@@ -113,17 +113,20 @@ The backend runs `prisma generate` before its tests, so a fresh checkout works w
 
 The Selenium suite is described in [tests/e2e/README.md](tests/e2e/README.md).
 
-Every pull request is checked by Jenkins using the `Jenkinsfile` in the repo root.
-It runs these checks, and the PR can only go green when all of them pass:
+Jenkins runs the `Jenkinsfile` in the repo root as a Multibranch Pipeline.
 
-1. ESLint for the backend and the frontend.
-2. TypeScript typecheck for the frontend.
-3. Unit tests for both packages.
-4. Docker image builds for the backend, the frontend and the Selenium runner.
-5. The full Selenium suite against the freshly built images.
+**Pull requests** get the basic checks, for the backend and then the frontend:
+
+1. ESLint.
+2. TypeScript typecheck (frontend; the backend is type-checked by its build).
+3. Unit tests.
+4. `npm run build`.
+
+**main** runs the same checks, then builds the Docker images one at a time and runs the full Selenium suite against them.
 
 Unit and Selenium results show up as JUnit reports on the Jenkins build.
 The Jenkins agent needs Docker with Compose v2.24 or newer, and the Jenkins user must be in the `docker` group.
+The CI machine has 2 GB of RAM, so steps run one at a time and the frontend's production build uses webpack with memory optimizations (see `frontend/next.config.js`).
 
 ## Environment variables
 
