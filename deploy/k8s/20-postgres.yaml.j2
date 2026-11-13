@@ -1,0 +1,67 @@
+# One Postgres pod with a persistent volume. It holds the data, so it is never replicated.
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: {{ k8s_namespace }}
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: {{ k8s_namespace }}
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          env:
+            - name: POSTGRES_USER
+              value: boardly
+            - name: POSTGRES_DB
+              value: boardly
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: boardly-secrets
+                  key: POSTGRES_PASSWORD
+            # A subdirectory, so initdb never trips over files the volume provisioner leaves behind.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "boardly", "-d", "boardly"]
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 384Mi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi
