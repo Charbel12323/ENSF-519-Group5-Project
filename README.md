@@ -39,7 +39,8 @@ frontend/    Next.js App Router frontend
 tests/e2e/   Selenium end-to-end tests
 docker-compose.yml
 docker-compose.ci.yml   CI overrides for running the Selenium suite in Docker
-Jenkinsfile  CI pipeline (PRs and main)
+Jenkinsfile  CI/CD pipeline: tests PRs, deploys main
+deploy/      Ansible playbook and Kubernetes manifests for the deploy
 ```
 
 ## Running it with Docker Compose
@@ -113,8 +114,8 @@ The backend runs `prisma generate` before its tests, so a fresh checkout works w
 
 The Selenium suite is described in [tests/e2e/README.md](tests/e2e/README.md).
 
-Jenkins runs the `Jenkinsfile` in the repo root as a Multibranch Pipeline, on every pull request and on main.
-Each build shows up on GitHub as three checks:
+Jenkins runs the `Jenkinsfile` in the repo root as a Multibranch Pipeline.
+Every pull request shows up on GitHub as three checks:
 
 | Check | What it runs |
 | --- | --- |
@@ -124,6 +125,10 @@ Each build shows up on GitHub as three checks:
 
 Each check's description says how long it took.
 Selenium is skipped when unit tests or the build fail.
+
+A merge to `main` isn't re-tested.
+It reports two checks instead: `Jenkins / Publish images`, which pushes the backend and frontend images to Docker Hub, and `Jenkins / Deploy`, which deploys them to Kubernetes with Ansible.
+See [deploy/README.md](deploy/README.md) for how the deploy works and the one-time setup.
 
 Unit and Selenium results show up as JUnit reports on the Jenkins build.
 The checks are posted with the "Pipeline: GitHub Notify Step" plugin, using the GitHub credentials of the multibranch job.
@@ -140,12 +145,16 @@ The CI machine has 2 GB of RAM, so steps run one at a time and the frontend's pr
 | `JWT_SECRET` | Secret used to sign JWTs - use a long random string in production |
 | `PORT` | Port the API listens on (default `4000`) |
 | `CORS_ORIGIN` | Allowed origin for the frontend (default `http://localhost:3000`) |
+| `APP_URL` | Public frontend URL, used in email links (default `http://localhost:3000`) |
+| `API_URL` | Public URL the browser uses for `/api`, which is the frontend origin since it proxies `/api` (default `http://localhost:3000`) |
 
 **frontend/.env**
 
 | Variable | Description |
 |---|---|
-| `NEXT_PUBLIC_API_URL` | Base URL of the backend API |
+| `BACKEND_INTERNAL_URL` | Where the Next.js server forwards `/api` requests, read at build time (default `http://localhost:4000`; the Docker image uses `http://backend:4000`) |
+
+The browser only talks to the frontend, which forwards `/api/*` to the backend.
 
 ## Data model
 

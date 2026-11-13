@@ -17,7 +17,8 @@ export function createApp() {
   app.use((_req, res, next) => { res.setHeader("Cache-Control", "no-store"); next(); });
   app.use(express.json());
 
-  app.get("/health", (_req, res) => res.json({ status: "ok" }));
+  // /api/health is the same check, reachable through the frontend's /api proxy.
+  app.get(["/health", "/api/health"], (_req, res) => res.json({ status: "ok" }));
 
   app.use("/api/auth", authRoutes);
   app.use("/api/groups", groupRoutes);
