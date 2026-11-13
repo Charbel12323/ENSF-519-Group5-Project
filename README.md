@@ -39,7 +39,7 @@ frontend/    Next.js App Router frontend
 tests/e2e/   Selenium end-to-end tests
 docker-compose.yml
 docker-compose.ci.yml   CI overrides for running the Selenium suite in Docker
-Jenkinsfile  CI pipeline for pull requests
+Jenkinsfile  CI pipeline (PRs and main)
 ```
 
 ## Running it with Docker Compose
@@ -113,18 +113,20 @@ The backend runs `prisma generate` before its tests, so a fresh checkout works w
 
 The Selenium suite is described in [tests/e2e/README.md](tests/e2e/README.md).
 
-Jenkins runs the `Jenkinsfile` in the repo root as a Multibranch Pipeline.
+Jenkins runs the `Jenkinsfile` in the repo root as a Multibranch Pipeline, on every pull request and on main.
+Each build shows up on GitHub as three checks:
 
-**Pull requests** get the basic checks, for the backend and then the frontend:
+| Check | What it runs |
+| --- | --- |
+| `Jenkins / Unit tests` | Vitest for the backend and the frontend |
+| `Jenkins / Lint, typecheck & build` | ESLint, the frontend typecheck and `npm run build` for both (the backend build type-checks it) |
+| `Jenkins / Selenium E2E` | Builds the Docker images one at a time, starts the app and runs the full Selenium suite |
 
-1. ESLint.
-2. TypeScript typecheck (frontend; the backend is type-checked by its build).
-3. Unit tests.
-4. `npm run build`.
-
-**main** runs the same checks, then builds the Docker images one at a time and runs the full Selenium suite against them.
+Each check's description says how long it took.
+Selenium is skipped when unit tests or the build fail.
 
 Unit and Selenium results show up as JUnit reports on the Jenkins build.
+The checks are posted with the "Pipeline: GitHub Notify Step" plugin, using the GitHub credentials of the multibranch job.
 The Jenkins agent needs Docker with Compose v2.24 or newer, and the Jenkins user must be in the `docker` group.
 The CI machine has 2 GB of RAM, so steps run one at a time and the frontend's production build uses webpack with memory optimizations (see `frontend/next.config.js`).
 
