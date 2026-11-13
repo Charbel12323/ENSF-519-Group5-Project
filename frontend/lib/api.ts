@@ -1,5 +1,3 @@
-export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
-
 export class ApiError extends Error {
   status: number;
 
@@ -24,7 +22,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     headers.Authorization = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${API_URL}${path}`, { credentials: "include", ...options, headers });
+  const res = await fetch(path, { credentials: "include", ...options, headers });
 
   if (res.status === 204) {
     return undefined as T;
@@ -49,7 +47,7 @@ export const api = {
   delete: <T>(path: string, body?: unknown) => request<T>(path, { method: "DELETE", body: body ? JSON.stringify(body) : undefined }),
   upload: <T>(path: string, file: File) => { const body = new FormData(); body.append("file", file); return request<T>(path, { method: "POST", body }); },
   download: async (path: string, filename: string) => {
-    const res = await fetch(`${API_URL}${path}`, { headers: { Authorization: `Bearer ${getToken()}` } });
+    const res = await fetch(path, { headers: { Authorization: `Bearer ${getToken()}` } });
     if (!res.ok) throw new ApiError(res.status, "Unable to download attachment");
     const url = URL.createObjectURL(await res.blob());
     const link = document.createElement("a"); link.href = url; link.download = filename; link.click();

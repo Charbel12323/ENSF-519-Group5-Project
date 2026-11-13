@@ -1,0 +1,167 @@
+---
+# Deploys Boardly to the Kubernetes host. Jenkins runs this on the Ansible server after pushing the images:
+#
+#   ansible-playbook deploy.yml \
+#     -e frontend_image=<user>/boardly-frontend:<tag> \
+#     -e backend_image=<user>/boardly-backend:<tag>
+#
+# It renders ../k8s/*.yaml.j2 with those exact images and runs `kubectl apply`, so the manifests are the
+# single source of truth for what runs in the cluster. The first run creates everything; later runs
+# only change what differs (normally just the two images).
+- name: Deploy Boardly to Kubernetes
+  hosts: "{{ target_host | default('ansible-node2') }}"
+  gather_facts: false
+  # /etc/kubernetes/admin.conf is only readable by root.
+  become: true
+
+  vars:
+    k8s_namespace: boardly
+    kubeconfig: /etc/kubernetes/admin.conf
+    kubectl: ["kubectl", "--kubeconfig={{ kubeconfig }}", "-n", "{{ k8s_namespace }}"]
+    node_port: 30000
+    backend_replicas: 1
+    frontend_replicas: 1
+    # Login/signup attempts per 15 minutes. All traffic reaches the backend through the frontend pods,
+    # so this budget is shared by every user rather than counted per person.
+    auth_rate_limit: 300
+    # Generated on the first deploy and stored on the Ansible server, so they stay the same afterwards.
+    # Keep this directory; losing it means the backend can no longer log in to the existing database.
+    secrets_dir: "{{ lookup('ansible.builtin.env', 'HOME') }}/.boardly"
+    postgres_password: "{{ lookup('ansible.builtin.password', secrets_dir ~ '/postgres_password', chars=['ascii_letters', 'digits'], length=32) }}"
+    jwt_secret: "{{ lookup('ansible.builtin.password', secrets_dir ~ '/jwt_secret', chars=['ascii_letters', 'digits'], length=64) }}"
+
+  tasks:
+    - name: Check the image arguments
+      ansible.builtin.assert:
+        that:
+          - frontend_image | default('') | length > 0
+          - backend_image | default('') | length > 0
+        fail_msg: "Pass both images: -e frontend_image=IMAGE:TAG -e backend_image=IMAGE:TAG"
+        quiet: true
+
+    - name: Look up the public IP, used for links in emails and the Google sign-in redirect
+      when: app_url is not defined
+      ansible.builtin.shell: |
+        token=$(curl -sf -m 3 -X PUT http://169.254.169.254/latest/api/token -H "X-aws-ec2-metadata-token-ttl-seconds: 60")
+        curl -sf -m 3 -H "X-aws-ec2-metadata-token: $token" http://169.254.169.254/latest/meta-data/public-ipv4
+      register: public_ip
+      changed_when: false
+      failed_when: false
+
+    - name: Work out the public URL
+      ansible.builtin.set_fact:
+        app_url: "{{ app_url | default('http://' ~ (public_ip.stdout | default('', true) or inventory_hostname) ~ ':' ~ node_port) }}"
+
+    - name: Show what is being deployed
+      ansible.builtin.debug:
+        msg:
+          - "Frontend: {{ frontend_image }}"
+          - "Backend:  {{ backend_image }}"
+          - "Public URL: {{ app_url }}"
+
+    - name: Create a temp dir for the rendered manifests
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: -boardly
+      register: manifest_dir
+
+    - name: Render, apply and verify
+      block:
+        - name: Render the manifests with the exact image tags
+          ansible.builtin.template:
+            src: "{{ item }}"
+            dest: "{{ manifest_dir.path }}/{{ item | basename | regex_replace('\\.j2$', '') }}"
+            mode: "0600"
+          loop: "{{ query('ansible.builtin.fileglob', playbook_dir ~ '/../k8s/*.yaml.j2') | sort }}"
+          loop_control:
+            label: "{{ item | basename }}"
+
+        - name: Apply the manifests
+          ansible.builtin.command:
+            argv: "{{ kubectl + ['apply', '-f', manifest_dir.path] }}"
+          register: apply_result
+          changed_when: apply_result.stdout is search('created|configured')
+
+        - name: Show what changed
+          ansible.builtin.debug:
+            var: apply_result.stdout_lines
+
+        - name: Wait for Postgres
+          ansible.builtin.command:
+            argv: "{{ kubectl + ['rollout', 'status', 'statefulset/postgres', '--timeout=180s'] }}"
+          changed_when: false
+
+        - name: Roll out the new version, rolling back if it doesn't come up
+          block:
+            - name: Wait for the backend rollout
+              ansible.builtin.command:
+                argv: "{{ kubectl + ['rollout', 'status', 'deployment/backend', '--timeout=300s'] }}"
+              changed_when: false
+
+            - name: Wait for the frontend rollout
+              ansible.builtin.command:
+                argv: "{{ kubectl + ['rollout', 'status', 'deployment/frontend', '--timeout=300s'] }}"
+              changed_when: false
+
+            - name: Find the node address for the smoke test
+              ansible.builtin.command:
+                argv: "{{ kubectl + ['get', 'nodes', '-o', 'jsonpath={.items[0].status.addresses[?(@.type==\"InternalIP\")].address}'] }}"
+              register: node_ip
+              changed_when: false
+
+            - name: "Smoke test: page, frontend -> backend, and backend -> database"
+              ansible.builtin.uri:
+                url: "http://{{ node_ip.stdout }}:{{ node_port }}{{ item.path }}"
+                method: "{{ item.method }}"
+                body_format: json
+                body: "{{ item.body | default(omit) }}"
+                status_code: "{{ item.status }}"
+              loop:
+                - { path: "/", method: GET, status: 200 }
+                - { path: "/api/health", method: GET, status: 200 }
+                # A made-up account gets a 401, which needs a working database to answer.
+                - { path: "/api/auth/login", method: POST, status: 401, body: { email: "smoke-test@boardly.invalid", password: "not-a-real-password" } }
+              loop_control:
+                label: "{{ item.method }} {{ item.path }}"
+              register: smoke
+              until: smoke is succeeded
+              retries: 10
+              delay: 3
+
+          rescue:
+            - name: Roll back to the previous version
+              ansible.builtin.command:
+                argv: "{{ kubectl + ['rollout', 'undo', 'deployment/' ~ item] }}"
+              loop: [backend, frontend]
+              # The very first deploy has nothing to go back to.
+              failed_when: false
+
+            - name: Wait for the rollback
+              ansible.builtin.command:
+                argv: "{{ kubectl + ['rollout', 'status', 'deployment/' ~ item, '--timeout=300s'] }}"
+              loop: [backend, frontend]
+              failed_when: false
+              changed_when: false
+
+            - name: Fail the deploy
+              ansible.builtin.fail:
+                msg: >-
+                  The new version did not come up, so the previous one was restored.
+                  Database migrations are not rolled back.
+                  Check the pods with: kubectl -n {{ k8s_namespace }} get pods; kubectl -n {{ k8s_namespace }} logs deploy/backend
+
+      always:
+        - name: Remove the rendered manifests (they contain the secrets)
+          ansible.builtin.file:
+            path: "{{ manifest_dir.path }}"
+            state: absent
+
+    - name: Get the current state
+      ansible.builtin.command:
+        argv: "{{ kubectl + ['get', 'deployments,statefulsets,pods,services', '-o', 'wide'] }}"
+      register: status
+      changed_when: false
+
+    - name: Show the current state
+      ansible.builtin.debug:
+        var: status.stdout_lines

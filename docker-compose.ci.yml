@@ -4,7 +4,7 @@
 #
 # Nothing is published on the host, so several builds can run side by side on one Jenkins machine
 # (give each its own COMPOSE_PROJECT_NAME). The browser runs in the e2e container and reaches the
-# app by service name, so the frontend is built to call http://backend:4000.
+# app by service name: http://frontend:3000, which proxies /api to http://backend:4000.
 services:
   db:
     ports: !reset []
@@ -14,7 +14,7 @@ services:
     environment:
       CORS_ORIGIN: http://frontend:3000
       APP_URL: http://frontend:3000
-      API_URL: http://backend:4000
+      API_URL: http://frontend:3000
       SMTP_HOST: mailpit
       SMTP_PORT: 1025
       AUTH_RATE_LIMIT: 1000
@@ -25,14 +25,10 @@ services:
       retries: 40
 
   frontend:
-    build:
-      args:
-        NEXT_PUBLIC_API_URL: http://backend:4000
     ports: !reset []
-    environment:
-      NEXT_PUBLIC_API_URL: http://backend:4000
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/"]
+      # Through the /api proxy, so the frontend only counts as healthy once it can reach the backend.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
       interval: 3s
       timeout: 3s
       retries: 40

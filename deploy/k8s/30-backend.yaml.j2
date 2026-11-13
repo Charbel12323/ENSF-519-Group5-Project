@@ -1,0 +1,88 @@
+# The API. Only reachable inside the cluster; browsers go through the frontend's /api proxy.
+# The service must stay named `backend` on port 4000, which is where the frontend image forwards /api.
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: {{ k8s_namespace }}
+spec:
+  selector:
+    app: backend
+  ports:
+    - port: 4000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: {{ k8s_namespace }}
+spec:
+  replicas: {{ backend_replicas }}
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app: backend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # Start the new pod before stopping the old one, so a deploy never takes the API down.
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+        - name: backend
+          image: {{ backend_image }}
+          imagePullPolicy: IfNotPresent
+          # The image's default command runs `prisma migrate deploy`, then starts the API.
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: boardly-secrets
+                  key: DATABASE_URL
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: boardly-secrets
+                  key: JWT_SECRET
+            - name: PORT
+              value: "4000"
+            - name: CORS_ORIGIN
+              value: {{ app_url | to_json }}
+            - name: APP_URL
+              value: {{ app_url | to_json }}
+            - name: API_URL
+              value: {{ app_url | to_json }}
+            # Every request reaches the API from a frontend pod, so this limit is shared by all users.
+            - name: AUTH_RATE_LIMIT
+              value: {{ auth_rate_limit | string | to_json }}
+          ports:
+            - containerPort: 4000
+          # Migrations run before the server starts listening, so give startup some room.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 4000
+            periodSeconds: 5
+            failureThreshold: 36
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4000
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4000
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 384Mi

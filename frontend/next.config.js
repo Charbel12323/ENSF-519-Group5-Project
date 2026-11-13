@@ -1,3 +1,8 @@
+// The browser only ever talks to this server. /api requests are forwarded to the backend, so the
+// same image works anywhere without baking in a public API address. The destination is fixed at
+// build time; `backend:4000` resolves in both docker compose and Kubernetes.
+const backendUrl = process.env.BACKEND_INTERNAL_URL ?? "http://localhost:4000";
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: "standalone",
@@ -9,6 +14,9 @@ const nextConfig = {
     webpackMemoryOptimizations: true,
     // Next starts one page-generation worker per CPU, each a separate Node process.
     cpus: 1,
+  },
+  async rewrites() {
+    return [{ source: "/api/:path*", destination: `${backendUrl}/api/:path*` }];
   },
 };
 
