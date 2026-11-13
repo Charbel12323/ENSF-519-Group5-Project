@@ -36,7 +36,10 @@ Task status for progress purposes comes from column position: the first column c
 ```
 backend/     Express API, Prisma schema and migrations
 frontend/    Next.js App Router frontend
+tests/e2e/   Selenium end-to-end tests
 docker-compose.yml
+docker-compose.ci.yml   CI overrides for running the Selenium suite in Docker
+Jenkinsfile  CI pipeline (PRs and main)
 ```
 
 ## Running it with Docker Compose
@@ -96,6 +99,36 @@ cp .env.example .env
 npm install
 npm run dev
 ```
+
+## Tests and CI
+
+Unit tests use Vitest and live next to the code they test (`*.test.ts`).
+Run them from `backend/` or `frontend/`:
+
+```bash
+npm test
+```
+
+The backend runs `prisma generate` before its tests, so a fresh checkout works without a database.
+
+The Selenium suite is described in [tests/e2e/README.md](tests/e2e/README.md).
+
+Jenkins runs the `Jenkinsfile` in the repo root as a Multibranch Pipeline, on every pull request and on main.
+Each build shows up on GitHub as three checks:
+
+| Check | What it runs |
+| --- | --- |
+| `Jenkins / Unit tests` | Vitest for the backend and the frontend |
+| `Jenkins / Lint, typecheck & build` | ESLint, the frontend typecheck and `npm run build` for both (the backend build type-checks it) |
+| `Jenkins / Selenium E2E` | Builds the Docker images one at a time, starts the app and runs the full Selenium suite |
+
+Each check's description says how long it took.
+Selenium is skipped when unit tests or the build fail.
+
+Unit and Selenium results show up as JUnit reports on the Jenkins build.
+The checks are posted with the "Pipeline: GitHub Notify Step" plugin, using the GitHub credentials of the multibranch job.
+The Jenkins agent needs Docker with Compose v2.24 or newer, and the Jenkins user must be in the `docker` group.
+The CI machine has 2 GB of RAM, so steps run one at a time and the frontend's production build uses webpack with memory optimizations (see `frontend/next.config.js`).
 
 ## Environment variables
 

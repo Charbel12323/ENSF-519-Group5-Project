@@ -33,6 +33,11 @@ MAILPIT_URL = os.environ.get("MAILPIT_URL", "http://127.0.0.1:8025").rstrip("/")
 HEADLESS = os.environ.get("HEADLESS", "1") != "0"
 # Seconds to pause after each click, typed value and page load, so a person can follow along.
 SLOW_MO = float(os.environ.get("SLOW_MO", "0"))
+# Set by tests/e2e/Dockerfile so the image's Chromium and chromedriver are used instead of a local Chrome.
+CHROME_BIN = os.environ.get("CHROME_BIN")
+CHROMEDRIVER = os.environ.get("CHROMEDRIVER")
+# Chrome's sandbox and its default /dev/shm usage don't work inside a Docker container.
+IN_CONTAINER = os.environ.get("E2E_IN_CONTAINER") == "1"
 TIMEOUT = 15
 
 
@@ -55,7 +60,13 @@ def driver():
     if HEADLESS:
         options.add_argument("--headless=new")
     options.add_argument("--window-size=1600,1000")
-    drv = webdriver.Chrome(options=options)
+    if CHROME_BIN:
+        options.binary_location = CHROME_BIN
+    if IN_CONTAINER:
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+    service = webdriver.ChromeService(executable_path=CHROMEDRIVER) if CHROMEDRIVER else None
+    drv = webdriver.Chrome(options=options, service=service)
     if SLOW_MO:
         drv = EventFiringWebDriver(drv, _SlowMo())
     yield drv
@@ -303,14 +314,28 @@ def stat_tile(driver, label):
     return int(visible(driver, By.XPATH, f"//div[contains(@class,'panel')][p[normalize-space()='{label}']]/p[2]").text)
 
 
+_DND_ANNOUNCEMENT = "[id^='rfd-announcement-']"
+
+
 def drag_with_keyboard(driver, title, steps_right):
-    """@hello-pangea/dnd supports keyboard dragging: Space to lift, arrows to move, Space to drop."""
+    """@hello-pangea/dnd supports keyboard dragging: Space to lift, arrows to move, Space to drop.
+
+    Each key waits for the library's screen-reader announcement for that step instead of a fixed
+    pause, so a slow or busy machine can't make a key press land before the previous step is done.
+    """
     card = visible(driver, By.XPATH, card_xpath(title))
     driver.execute_script("arguments[0].focus();", card)
-    actions = ActionChains(driver).send_keys(Keys.SPACE).pause(0.4)
+
+    def press(key, announcement):
+        driver.execute_script(f"document.querySelectorAll(\"{_DND_ANNOUNCEMENT}\").forEach(e => e.textContent = '')")
+        ActionChains(driver).send_keys(key).perform()
+        wait(driver).until(lambda d: announcement in d.execute_script(
+            f"return [...document.querySelectorAll(\"{_DND_ANNOUNCEMENT}\")].map(e => e.textContent).join(' ')"))
+
+    press(Keys.SPACE, "You have lifted")
     for _ in range(steps_right):
-        actions.send_keys(Keys.ARROW_RIGHT).pause(0.4)
-    actions.send_keys(Keys.SPACE).perform()
+        press(Keys.ARROW_RIGHT, "You have moved")
+    press(Keys.SPACE, "You have dropped")
 
 
 def calendar_chip(driver, title):

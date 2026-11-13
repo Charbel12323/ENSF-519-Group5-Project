@@ -3,19 +3,16 @@ WORKDIR /app
 COPY package*.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci
 COPY . .
-RUN npm run build
+# Install once, build, then drop dev dependencies so the runtime stage can reuse node_modules
+# instead of running a second npm ci. The Prisma CLI is a regular dependency because
+# `migrate deploy` runs at startup, and the generated client in node_modules/.prisma is kept.
+RUN npm run build && npm prune --omit=dev
 
 FROM node:22-alpine
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package*.json ./
-RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev
-
-# Prisma CLI is a devDependency but `migrate deploy` runs at startup, so bring
-# the generated client and the CLI over from the build stage instead of
-# shipping the whole dev toolchain.
-COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=build /app/node_modules/prisma ./node_modules/prisma
+COPY --from=build /app/node_modules ./node_modules
 COPY prisma ./prisma
 COPY --from=build /app/dist ./dist
 

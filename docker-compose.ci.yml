@@ -1,0 +1,61 @@
+# CI overrides for running the Selenium suite inside Docker:
+#   docker compose -f docker-compose.yml -f docker-compose.ci.yml --profile mail up -d --wait
+#   docker compose -f docker-compose.yml -f docker-compose.ci.yml --profile mail --profile e2e run --rm e2e
+#
+# Nothing is published on the host, so several builds can run side by side on one Jenkins machine
+# (give each its own COMPOSE_PROJECT_NAME). The browser runs in the e2e container and reaches the
+# app by service name, so the frontend is built to call http://backend:4000.
+services:
+  db:
+    ports: !reset []
+
+  backend:
+    ports: !reset []
+    environment:
+      CORS_ORIGIN: http://frontend:3000
+      APP_URL: http://frontend:3000
+      API_URL: http://backend:4000
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      AUTH_RATE_LIMIT: 1000
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4000/health"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+
+  frontend:
+    build:
+      args:
+        NEXT_PUBLIC_API_URL: http://backend:4000
+    ports: !reset []
+    environment:
+      NEXT_PUBLIC_API_URL: http://backend:4000
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+
+  mailpit:
+    ports: !reset []
+
+  e2e:
+    build:
+      context: ./tests/e2e
+    profiles: ["e2e"]
+    # Run as the calling user so the JUnit report isn't owned by root on the Jenkins workspace.
+    user: "${E2E_UID:-0}:${E2E_GID:-0}"
+    environment:
+      BOARDLY_URL: http://frontend:3000
+      BOARDLY_API_URL: http://backend:4000/api
+      MAILPIT_URL: http://mailpit:8025
+    volumes:
+      - ./test-results:/results
+    depends_on:
+      frontend:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
