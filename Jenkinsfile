@@ -89,7 +89,10 @@ pipeline {
 
   stages {
     stage('Install') {
-      when { not { branch 'main' } }
+      when {
+        beforeAgent true
+        not { branch 'main' }
+      }
       agent {
         docker {
           image NODE_IMAGE
@@ -110,7 +113,10 @@ pipeline {
     }
 
     stage('Unit tests') {
-      when { not { branch 'main' } }
+      when {
+        beforeAgent true
+        not { branch 'main' }
+      }
       agent {
         docker {
           image NODE_IMAGE
@@ -139,7 +145,10 @@ pipeline {
     }
 
     stage('Lint, typecheck & build') {
-      when { not { branch 'main' } }
+      when {
+        beforeAgent true
+        not { branch 'main' }
+      }
       agent {
         docker {
           image NODE_IMAGE
@@ -209,11 +218,15 @@ pipeline {
                                               usernameVariable: 'DOCKERHUB_USER',
                                               passwordVariable: 'DOCKERHUB_TOKEN')]) {
               env.IMAGE_REPO = env.DOCKERHUB_USER
+              // Built through Compose, like the PR builds: the Dockerfiles need BuildKit, which Compose
+              // brings along, while plain `docker build` on the agent falls back to the legacy builder.
               // One image at a time to stay within 2 GB. Each is tagged with the commit and as latest;
               // deploys always use the commit tag.
               for (String app in ['backend', 'frontend']) {
                 sh label: "Build ${app} image", script: """
-                  docker build -t "\$DOCKERHUB_USER/boardly-${app}:\$IMAGE_TAG" -t "\$DOCKERHUB_USER/boardly-${app}:latest" ${app}
+                  COMPOSE_PROJECT_NAME=boardly-publish docker compose -f docker-compose.yml build ${app}
+                  docker tag boardly-publish-${app} "\$DOCKERHUB_USER/boardly-${app}:\$IMAGE_TAG"
+                  docker tag boardly-publish-${app} "\$DOCKERHUB_USER/boardly-${app}:latest"
                 """
               }
               sh label: 'Log in to Docker Hub', script: 'echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USER" --password-stdin'
