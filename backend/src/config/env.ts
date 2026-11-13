@@ -14,7 +14,8 @@ export const env = {
   jwtSecret: required("JWT_SECRET"),
   corsOrigin: process.env.CORS_ORIGIN ?? "http://localhost:3000",
   appUrl: process.env.APP_URL ?? "http://localhost:3000",
-  apiUrl: process.env.API_URL ?? "http://localhost:4000",
+  // Public origin of /api. The frontend proxies /api to this server, so it is the frontend origin.
+  apiUrl: process.env.API_URL ?? "http://localhost:3000",
   smtpHost: process.env.SMTP_HOST ?? "localhost",
   smtpPort: Number(process.env.SMTP_PORT ?? 1025),
   smtpSecure: process.env.SMTP_SECURE === "true",

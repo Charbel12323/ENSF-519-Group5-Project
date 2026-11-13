@@ -102,9 +102,9 @@ Reference: [Nodemailer SMTP configuration](https://nodemailer.com/smtp).
 Create an OAuth client of type **Web application** in Google Cloud. Set:
 
 - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` on the backend.
-- `API_URL` to the public backend origin (default `http://localhost:4000`).
+- `API_URL` to the public origin the browser uses for `/api`. The frontend proxies `/api` to the backend, so this is the frontend origin (`http://localhost:3000` locally).
 - `APP_URL` and `CORS_ORIGIN` to the frontend origin.
-- An authorized redirect URI of `http://localhost:4000/api/auth/google/callback`
+- An authorized redirect URI of `http://localhost:3000/api/auth/google/callback`
   locally, or `{API_URL}/api/auth/google/callback` in your deployment.
 
 Restart the backend after changing configuration. The Google button appears only

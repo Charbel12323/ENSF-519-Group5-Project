@@ -4,8 +4,8 @@ COPY package*.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci
 COPY . .
 RUN mkdir -p public
-ARG NEXT_PUBLIC_API_URL=http://localhost:4000
-ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+# Where /api is proxied to (see next.config.js). Baked into the build output.
+ARG BACKEND_INTERNAL_URL=http://backend:4000
 RUN npm run build
 
 FROM node:22-alpine
