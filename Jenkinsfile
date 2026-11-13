@@ -16,7 +16,7 @@
 //
 // Jenkins setup for main (see deploy/README.md):
 //   dockerhub-creds  Username with password: Docker Hub username and access token
-//   ansible-ssh      SSH Username with private key: login for the Ansible server
+//   ansible-ssh-key  SSH Username with private key: login for the Ansible server
 //   ANSIBLE_HOST     global environment variable: address of the Ansible server
 //
 // The agent needs Docker (the Node steps run in a node:22-alpine container) with Compose v2.24+
@@ -248,7 +248,7 @@ pipeline {
       steps {
         script {
           check('deploy') {
-            withCredentials([sshUserPrivateKey(credentialsId: 'ansible-ssh',
+            withCredentials([sshUserPrivateKey(credentialsId: 'ansible-ssh-key',
                                                keyFileVariable: 'SSH_KEY',
                                                usernameVariable: 'SSH_USER')]) {
               // Copy this commit's deploy/ folder to the Ansible server, then run the playbook there.

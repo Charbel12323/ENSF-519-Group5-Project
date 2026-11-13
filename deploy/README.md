@@ -31,7 +31,7 @@ Don't change things in the cluster by hand; the next deploy puts them back the w
 | What | Type | Value |
 | --- | --- | --- |
 | `dockerhub-creds` | Credential: Username with password | Docker Hub username and an access token |
-| `ansible-ssh` | Credential: SSH Username with private key | User and private key that can SSH into the Ansible server |
+| `ansible-ssh-key` | Credential: SSH Username with private key | User and private key that can SSH into the Ansible server |
 | `ANSIBLE_HOST` | Manage Jenkins > System > Global properties > Environment variables | Address of the Ansible server |
 
 The Jenkins user also needs `ssh` and `tar`, which come with most Linux images.
