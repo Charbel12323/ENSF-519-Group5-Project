@@ -115,7 +115,7 @@ The backend runs `prisma generate` before its tests, so a fresh checkout works w
 The Selenium suite is described in [tests/e2e/README.md](tests/e2e/README.md).
 
 Jenkins runs the `Jenkinsfile` in the repo root as a Multibranch Pipeline.
-Every pull request shows up on GitHub as three checks:
+Every build, for pull requests and for `main`, shows up on GitHub as three checks:
 
 | Check | What it runs |
 | --- | --- |
@@ -126,8 +126,8 @@ Every pull request shows up on GitHub as three checks:
 Each check's description says how long it took.
 Selenium is skipped when unit tests or the build fail.
 
-A merge to `main` isn't re-tested.
-It reports two checks instead: `Jenkins / Publish images`, which pushes the backend and frontend images to Docker Hub, and `Jenkins / Deploy`, which deploys them to Kubernetes with Ansible.
+A merge to `main` runs the same three checks first.
+Only if all of them pass does it report two more: `Jenkins / Publish images`, which pushes the backend and frontend images to Docker Hub, and `Jenkins / Deploy`, which deploys them to Kubernetes with Ansible.
 See [deploy/README.md](deploy/README.md) for how the deploy works and the one-time setup.
 
 Unit and Selenium results show up as JUnit reports on the Jenkins build.

@@ -1,6 +1,6 @@
 # Deploying Boardly
 
-Every merge to `main` is deployed automatically:
+Every merge to `main` is built and tested (unit tests, lint/typecheck/build and the Selenium suite), then deployed automatically if everything passes:
 
 1. Jenkins builds `boardly-backend` and `boardly-frontend` and pushes them to Docker Hub, tagged with the commit (for example `abc1234`) and `latest`.
 2. Jenkins copies this `deploy/` folder to the Ansible server over SSH and runs `ansible/deploy.yml` with the two image names.
@@ -8,7 +8,7 @@ Every merge to `main` is deployed automatically:
 4. It waits for the rollout and smoke-tests the app.
    If the new version doesn't come up, it rolls back to the previous one and the Jenkins build fails.
 
-Nothing is re-tested on `main`; that already happened in the PR.
+If any test fails, nothing is pushed to Docker Hub and nothing is deployed.
 
 ## What runs in the cluster
 

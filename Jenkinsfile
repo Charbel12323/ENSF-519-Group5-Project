@@ -1,13 +1,13 @@
 // CI/CD for Boardly, run as a Multibranch Pipeline.
 //
-// Pull requests are tested; main is deployed. Each build reports its steps to GitHub as separate checks.
+// Every branch is built and tested; main is then deployed. Each build reports its steps to GitHub as separate checks.
 //
-// Pull requests (and any branch other than main):
+// Every build (pull requests and main):
 //   Jenkins / Unit tests               Vitest for the backend and the frontend
 //   Jenkins / Lint, typecheck & build  ESLint, tsc and both production builds
 //   Jenkins / Selenium E2E             builds the Docker images, starts the app, runs the browser suite
 //
-// main (the code was already tested in its PR, so nothing is re-tested):
+// main only, and only if every check above passed in this same build:
 //   Jenkins / Publish images           builds boardly-backend and boardly-frontend, pushes them to Docker Hub
 //   Jenkins / Deploy                   runs deploy/ansible/deploy.yml on the Ansible server with those images
 //
@@ -89,10 +89,6 @@ pipeline {
 
   stages {
     stage('Install') {
-      when {
-        beforeAgent true
-        not { branch 'main' }
-      }
       agent {
         docker {
           image NODE_IMAGE
@@ -113,10 +109,6 @@ pipeline {
     }
 
     stage('Unit tests') {
-      when {
-        beforeAgent true
-        not { branch 'main' }
-      }
       agent {
         docker {
           image NODE_IMAGE
@@ -145,10 +137,6 @@ pipeline {
     }
 
     stage('Lint, typecheck & build') {
-      when {
-        beforeAgent true
-        not { branch 'main' }
-      }
       agent {
         docker {
           image NODE_IMAGE
@@ -175,7 +163,6 @@ pipeline {
 
     stage('Selenium E2E') {
       when {
-        not { branch 'main' }
         // Not worth the time and memory if the code doesn't build or pass its unit tests.
         expression { currentBuild.currentResult == 'SUCCESS' }
       }
@@ -208,7 +195,11 @@ pipeline {
     }
 
     stage('Publish images') {
-      when { branch 'main' }
+      when {
+        branch 'main'
+        // Only ship code that built and passed every test in this run.
+        expression { currentBuild.currentResult == 'SUCCESS' }
+      }
       steps {
         script {
           report('deploy', 'PENDING', 'Waiting for the images')
@@ -257,7 +248,11 @@ pipeline {
     }
 
     stage('Deploy') {
-      when { branch 'main' }
+      when {
+        branch 'main'
+        // Only ship code that built and passed every test in this run.
+        expression { currentBuild.currentResult == 'SUCCESS' }
+      }
       steps {
         script {
           check('deploy') {
