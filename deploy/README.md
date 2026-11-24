@@ -18,7 +18,7 @@ If any test fails, nothing is pushed to Docker Hub and nothing is deployed.
 
 | | |
 | --- | --- |
-| What | One EC2 `t3.small` (2 GB) running Ubuntu 24.04 and k3s, named `boardly-k8s` |
+| What | One EC2 `t3.small` (2 GB) running k3s on Ubuntu (the same image as the Ansible server), named `boardly-k8s` |
 | Created by | `terraform/main.tf`, run from the Ansible server |
 | App URL | `http://<public_ip>:30000` (an Elastic IP, so it survives restarts). `./run.sh output` prints it. |
 | SSH | Only from the Ansible server: `ssh ubuntu@<private_ip>` (it has the key) |

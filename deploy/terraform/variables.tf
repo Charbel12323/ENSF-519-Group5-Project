@@ -1,4 +1,4 @@
-# run.sh fills in region, ansible_cidr and public_key_path from the Ansible server it runs on.
+# run.sh fills in region, ansible_cidr, ami_id and public_key_path from the Ansible server it runs on.
 
 variable "region" {
   description = "AWS region for the server; the same one as the Ansible server."
@@ -12,6 +12,16 @@ variable "ansible_cidr" {
   validation {
     condition     = can(cidrhost(var.ansible_cidr, 0))
     error_message = "ansible_cidr must be a CIDR block, for example 172.31.20.56/32."
+  }
+}
+
+variable "ami_id" {
+  description = "Image the server is launched from. run.sh passes the Ansible server's own (Ubuntu) image."
+  type        = string
+
+  validation {
+    condition     = startswith(var.ami_id, "ami-")
+    error_message = "ami_id must be an AMI ID, for example ami-0f441bd6af0596ef7."
   }
 }
 

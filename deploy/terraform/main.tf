@@ -31,16 +31,6 @@ data "aws_vpc" "default" {
   default = true
 }
 
-data "aws_ami" "ubuntu" {
-  most_recent = true
-  owners      = ["099720108477"] # Canonical
-
-  filter {
-    name   = "name"
-    values = ["ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*"]
-  }
-}
-
 resource "aws_security_group" "k8s" {
   name        = "boardly-k8s"
   description = "Boardly Kubernetes server"
@@ -55,7 +45,7 @@ resource "aws_security_group" "k8s" {
   }
 
   ingress {
-    description = "The app (the frontend's NodePort)"
+    description = "The app, on the frontend NodePort"
     from_port   = var.node_port
     to_port     = var.node_port
     protocol    = "tcp"
@@ -77,7 +67,7 @@ resource "aws_key_pair" "ansible" {
 }
 
 resource "aws_instance" "k8s" {
-  ami                    = data.aws_ami.ubuntu.id
+  ami                    = var.ami_id
   instance_type          = var.instance_type
   key_name               = aws_key_pair.ansible.key_name
   vpc_security_group_ids = [aws_security_group.k8s.id]
@@ -99,8 +89,8 @@ resource "aws_instance" "k8s" {
   }
 
   lifecycle {
-    # Canonical publishes new images often. Picking one up would replace the server (and wipe the cluster
-    # and its database), so a running server keeps the image it was created with.
+    # Changing the image would replace the server (and wipe the cluster and its database), so a running
+    # server keeps the image it was created with, even if the Ansible server is rebuilt from a newer one.
     ignore_changes = [ami]
   }
 }
