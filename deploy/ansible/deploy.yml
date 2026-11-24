@@ -113,7 +113,9 @@
               ansible.builtin.uri:
                 url: "http://{{ node_ip.stdout }}:{{ node_port }}{{ item.path }}"
                 method: "{{ item.method }}"
-                body_format: json
+                # JSON only for requests with a body: with body_format json and no body, uri sends the body
+                # `null`, which the backend's JSON parser rejects, so GET /api/health would fail with a 500.
+                body_format: "{{ 'json' if item.body is defined else 'raw' }}"
                 body: "{{ item.body | default(omit) }}"
                 status_code: "{{ item.status }}"
               loop:
