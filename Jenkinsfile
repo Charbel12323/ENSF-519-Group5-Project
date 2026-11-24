@@ -9,12 +9,16 @@
 //
 // main only, and only if every check above passed in this same build:
 //   Jenkins / Publish images           builds boardly-backend and boardly-frontend, pushes them to Docker Hub
-//   Jenkins / Deploy                   runs deploy/ansible/deploy.yml on the Ansible server with those images
+//   Jenkins / Provision server         Terraform creates the Kubernetes server, or puts it back as described
+//   Jenkins / Configure server         Ansible connects to it and installs Kubernetes (k3s)
+//   Jenkins / Run containers           Ansible deploys the new images to Kubernetes and smoke-tests the app
+//   Jenkins / Kubernetes orchestration scales the backend, deletes a pod to show self-healing, shows the history
+// The last four run on the Ansible server, from this commit's deploy/ folder (see deploy/README.md).
 //
 // The checks are posted with githubNotify from the "Pipeline: GitHub Notify Step" plugin, which reuses
 // the GitHub credentials of the multibranch source and posts to the PR's head commit.
 //
-// Jenkins setup for main (see deploy/README.md):
+// Jenkins setup for main (see deploy/README.md, which also covers the Ansible server):
 //   dockerhub-creds  Username with password: Docker Hub username and access token
 //   ansible-ssh-key  SSH Username with private key: login for the Ansible server
 //   ANSIBLE_HOST     global environment variable: address of the Ansible server
@@ -29,9 +33,17 @@ import groovy.transform.Field
   unit   : 'Jenkins / Unit tests',
   build  : 'Jenkins / Lint, typecheck & build',
   e2e    : 'Jenkins / Selenium E2E',
-  publish: 'Jenkins / Publish images',
-  deploy : 'Jenkins / Deploy',
+  publish    : 'Jenkins / Publish images',
+  provision  : 'Jenkins / Provision server',
+  configure  : 'Jenkins / Configure server',
+  run        : 'Jenkins / Run containers',
+  orchestrate: 'Jenkins / Kubernetes orchestration',
 ]
+@Field final List DEPLOY_CHECKS = ['provision', 'configure', 'run', 'orchestrate']
+
+// ssh to the Ansible server, inside withAnsibleSsh.
+@Field final String SSH_TO_ANSIBLE =
+  'ssh -i "$SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=accept-new "$SSH_USER@$ANSIBLE_HOST"'
 
 // A newer push to a PR cancels the running build, but a deploy on main is never cut off halfway;
 // main builds queue up instead. Declarative `options` can't vary by branch, hence `properties`.
@@ -79,11 +91,33 @@ void check(String key, Closure body) {
   report(key, 'SUCCESS', "Passed in ${elapsedSince(start)}")
 }
 
+void withAnsibleSsh(Closure body) {
+  withCredentials([sshUserPrivateKey(credentialsId: 'ansible-ssh-key',
+                                     keyFileVariable: 'SSH_KEY',
+                                     usernameVariable: 'SSH_USER')]) {
+    body()
+  }
+}
+
+// Runs script with bash on the Ansible server, in the folder 'Provision server' copied this commit's
+// deploy/ files to. IMAGE_TAG and IMAGE_REPO are passed along.
+void onAnsible(String label, String script) {
+  writeFile file: '.on-ansible.sh', text: "set -euo pipefail\n${script}\n"
+  withAnsibleSsh {
+    sh label: label, script: """
+      ${SSH_TO_ANSIBLE} \\
+        "cd ~/boardly-deploy/\$IMAGE_TAG && IMAGE_TAG='\$IMAGE_TAG' IMAGE_REPO='\${IMAGE_REPO:-}' ANSIBLE_NOCOLOR=1 bash -s" \\
+        < .on-ansible.sh
+    """
+  }
+}
+
 pipeline {
   agent any
 
   options {
-    timeout(time: 45, unit: 'MINUTES')
+    // A main build that creates a new server spends about 10 extra minutes setting it up.
+    timeout(time: 60, unit: 'MINUTES')
     timestamps()
   }
 
@@ -202,7 +236,9 @@ pipeline {
       }
       steps {
         script {
-          report('deploy', 'PENDING', 'Waiting for the images')
+          for (String key in DEPLOY_CHECKS) {
+            report(key, 'PENDING', 'Waiting for the images')
+          }
           env.IMAGE_TAG = sh(script: 'git rev-parse --short=7 HEAD', returnStdout: true).trim()
           check('publish') {
             withCredentials([usernamePassword(credentialsId: 'dockerhub-creds',
@@ -247,35 +283,78 @@ pipeline {
       }
     }
 
-    stage('Deploy') {
+    // The four deploy stages run on the Ansible server. The inventory run.sh writes to ~/.boardly tells
+    // Ansible where the server Terraform created is.
+
+    stage('Provision server') {
       when {
         branch 'main'
-        // Only ship code that built and passed every test in this run.
         expression { currentBuild.currentResult == 'SUCCESS' }
       }
       steps {
         script {
-          check('deploy') {
-            withCredentials([sshUserPrivateKey(credentialsId: 'ansible-ssh-key',
-                                               keyFileVariable: 'SSH_KEY',
-                                               usernameVariable: 'SSH_USER')]) {
-              // Copy this commit's deploy/ folder to the Ansible server, then run the playbook there.
-              sh label: 'Run the Ansible deploy', script: '''
+          check('provision') {
+            withAnsibleSsh {
+              sh label: 'Copy deploy/ to the Ansible server', script: """
                 set -eu
-                : "${ANSIBLE_HOST:?Set ANSIBLE_HOST in Manage Jenkins > System > Global properties}"
-                on_ansible() {
-                  ssh -i "$SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=accept-new "$SSH_USER@$ANSIBLE_HOST" "$@"
-                }
-                dir="boardly-deploy/$IMAGE_TAG"
+                : "\${ANSIBLE_HOST:?Set ANSIBLE_HOST in Manage Jenkins > System > Global properties}"
+                dir="boardly-deploy/\$IMAGE_TAG"
                 # touch: tar restores the folder's old timestamp, and the cleanup below sorts by time.
-                tar -czf - -C deploy . | on_ansible "rm -rf ~/$dir && mkdir -p ~/$dir && tar -xzf - -C ~/$dir && touch ~/$dir"
-                on_ansible "cd ~/$dir/ansible && ansible-playbook deploy.yml \
-                  -e frontend_image=$IMAGE_REPO/boardly-frontend:$IMAGE_TAG \
-                  -e backend_image=$IMAGE_REPO/boardly-backend:$IMAGE_TAG"
+                tar -czf - -C deploy . | ${SSH_TO_ANSIBLE} "rm -rf ~/\$dir && mkdir -p ~/\$dir && tar -xzf - -C ~/\$dir && touch ~/\$dir"
                 # Keep the last 5 releases' files on the Ansible server.
-                on_ansible 'cd ~/boardly-deploy && ls -1t | tail -n +6 | xargs -r rm -rf'
-              '''
+                ${SSH_TO_ANSIBLE} 'cd ~/boardly-deploy && ls -1t | tail -n +6 | xargs -r rm -rf'
+              """
             }
+            onAnsible('Terraform apply', 'bash terraform/run.sh apply "$IMAGE_TAG"')
+          }
+        }
+      }
+    }
+
+    stage('Configure server') {
+      when {
+        branch 'main'
+        expression { currentBuild.currentResult == 'SUCCESS' }
+      }
+      steps {
+        script {
+          check('configure') {
+            onAnsible('Install Kubernetes (k3s) with Ansible',
+                      'cd ansible && ansible-playbook -i ~/.boardly/inventory.ini k8s-node.yml')
+          }
+        }
+      }
+    }
+
+    stage('Run containers') {
+      when {
+        branch 'main'
+        expression { currentBuild.currentResult == 'SUCCESS' }
+      }
+      steps {
+        script {
+          check('run') {
+            onAnsible('Deploy the images to Kubernetes with Ansible', '''
+              cd ansible
+              ansible-playbook -i ~/.boardly/inventory.ini deploy.yml \\
+                -e "frontend_image=$IMAGE_REPO/boardly-frontend:$IMAGE_TAG" \\
+                -e "backend_image=$IMAGE_REPO/boardly-backend:$IMAGE_TAG"
+            ''')
+          }
+        }
+      }
+    }
+
+    stage('Kubernetes orchestration') {
+      when {
+        branch 'main'
+        expression { currentBuild.currentResult == 'SUCCESS' }
+      }
+      steps {
+        script {
+          check('orchestrate') {
+            onAnsible('Scale, self-heal and show the rollout history',
+                      'cd ansible && ansible-playbook -i ~/.boardly/inventory.ini orchestrate.yml')
           }
         }
       }

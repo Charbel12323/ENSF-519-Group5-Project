@@ -1,0 +1,105 @@
+---
+# Shows Kubernetes managing the containers deploy.yml started. Jenkins runs this as the last step of
+# every deploy to main:
+#
+#   ansible-playbook -i ~/.boardly/inventory.ini orchestrate.yml
+#
+#   1. Scaling: the backend goes from 1 pod to 2 with one command.
+#   2. Self-healing: one backend pod is deleted, and Kubernetes starts a replacement on its own.
+#   3. Rolling updates: the rollout history lists every version deployed, any of which can be rolled back to.
+# Then the backend goes back to 1 pod. The second pod keeps serving while the first is deleted, so users
+# never notice. The t3.small has room for one extra backend pod, not more.
+- name: Demonstrate Kubernetes orchestration
+  hosts: "{{ target_host | default('boardly_k8s') }}"
+  gather_facts: false
+  become: true
+
+  vars:
+    k8s_namespace: boardly
+    kubectl: ["kubectl", "--kubeconfig=/etc/rancher/k3s/k3s.yaml", "-n", "{{ k8s_namespace }}"]
+    # What deploy.yml runs normally; the backend comes back to this at the end.
+    backend_replicas: 1
+    demo_replicas: 2
+
+  tasks:
+    - name: Get the pods before
+      ansible.builtin.command:
+        argv: "{{ kubectl + ['get', 'deployments,pods', '-o', 'wide'] }}"
+      register: before
+      changed_when: false
+
+    - name: Show the pods before
+      ansible.builtin.debug:
+        var: before.stdout_lines
+
+    - name: Run the demo, then put the backend back to normal
+      block:
+        - name: "Scaling: run {{ demo_replicas }} backend pods"
+          ansible.builtin.command:
+            argv: "{{ kubectl + ['scale', 'deployment/backend', '--replicas=' ~ demo_replicas] }}"
+
+        - name: Wait for the extra backend pod
+          ansible.builtin.command:
+            argv: "{{ kubectl + ['rollout', 'status', 'deployment/backend', '--timeout=180s'] }}"
+          changed_when: false
+
+        - name: Pick a backend pod to delete
+          ansible.builtin.command:
+            argv: "{{ kubectl + ['get', 'pods', '-l', 'app=backend', '-o', 'jsonpath={.items[0].metadata.name}'] }}"
+          register: victim
+          changed_when: false
+
+        - name: "Self-healing: delete {{ victim.stdout }}"
+          ansible.builtin.command:
+            argv: "{{ kubectl + ['delete', 'pod', victim.stdout] }}"
+
+        - name: Wait for Kubernetes to replace it
+          ansible.builtin.command:
+            argv: "{{ kubectl + ['wait', '--for=condition=Ready', 'pod', '-l', 'app=backend', '--timeout=180s'] }}"
+          register: replaced
+          changed_when: false
+          # The replacement can take a moment to appear, and `wait` fails at once if a pod is still starting.
+          until: replaced.rc == 0
+          retries: 6
+          delay: 5
+
+        - name: Get the backend pods after the replacement
+          ansible.builtin.command:
+            argv: "{{ kubectl + ['get', 'pods', '-l', 'app=backend', '-o', 'wide'] }}"
+          register: healed
+          changed_when: false
+
+        - name: Show that the deleted pod was replaced
+          ansible.builtin.debug:
+            msg: "{{ ['Deleted ' ~ victim.stdout ~ '; Kubernetes replaced it:'] + healed.stdout_lines }}"
+
+        - name: "Rolling updates: get the release history"
+          ansible.builtin.command:
+            argv: "{{ kubectl + ['rollout', 'history', 'deployment/' ~ item] }}"
+          loop: [backend, frontend]
+          register: history
+          changed_when: false
+
+        - name: Show the release history (any of these can be rolled back to with `kubectl rollout undo`)
+          ansible.builtin.debug:
+            msg: "{{ history.results | map(attribute='stdout_lines') | flatten }}"
+
+      always:
+        - name: Scale the backend back to {{ backend_replicas }}
+          ansible.builtin.command:
+            argv: "{{ kubectl + ['scale', 'deployment/backend', '--replicas=' ~ backend_replicas] }}"
+
+        - name: Wait for the backend to settle
+          ansible.builtin.command:
+            argv: "{{ kubectl + ['rollout', 'status', 'deployment/backend', '--timeout=180s'] }}"
+          changed_when: false
+
+    - name: Get the pods after
+      ansible.builtin.command:
+        argv: "{{ kubectl + ['get', 'deployments,pods', '-o', 'wide'] }}"
+      register: after
+      changed_when: false
+
+    - name: Show the pods after
+      ansible.builtin.debug:
+        var: after.stdout_lines

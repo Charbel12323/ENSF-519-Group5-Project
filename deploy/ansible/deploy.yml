@@ -1,7 +1,8 @@
 ---
-# Deploys Boardly to the Kubernetes host. Jenkins runs this on the Ansible server after pushing the images:
+# Deploys Boardly to the Kubernetes server. Jenkins runs this on the Ansible server after pushing the images
+# and setting the server up (../terraform/run.sh, then k8s-node.yml):
 #
-#   ansible-playbook deploy.yml \
+#   ansible-playbook -i ~/.boardly/inventory.ini deploy.yml \
 #     -e frontend_image=<user>/boardly-frontend:<tag> \
 #     -e backend_image=<user>/boardly-backend:<tag>
 #
@@ -9,15 +10,16 @@
 # single source of truth for what runs in the cluster. The first run creates everything; later runs
 # only change what differs (normally just the two images).
 - name: Deploy Boardly to Kubernetes
-  hosts: "{{ target_host | default('ansible-node2') }}"
+  hosts: "{{ target_host | default('boardly_k8s') }}"
   gather_facts: false
-  # /etc/kubernetes/admin.conf is only readable by root.
+  # The k3s kubeconfig is only readable by root.
   become: true
 
   vars:
     k8s_namespace: boardly
-    kubeconfig: /etc/kubernetes/admin.conf
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
     kubectl: ["kubectl", "--kubeconfig={{ kubeconfig }}", "-n", "{{ k8s_namespace }}"]
+    # Must match node_port in ../terraform/variables.tf, which opens it in the firewall.
     node_port: 30000
     backend_replicas: 1
     frontend_replicas: 1

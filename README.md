@@ -40,7 +40,7 @@ tests/e2e/   Selenium end-to-end tests
 docker-compose.yml
 docker-compose.ci.yml   CI overrides for running the Selenium suite in Docker
 Jenkinsfile  CI/CD pipeline: tests PRs, deploys main
-deploy/      Ansible playbook and Kubernetes manifests for the deploy
+deploy/      Terraform, Ansible playbooks and Kubernetes manifests for the deploy
 ```
 
 ## Running it with Docker Compose
@@ -127,7 +127,16 @@ Each check's description says how long it took.
 Selenium is skipped when unit tests or the build fail.
 
 A merge to `main` runs the same three checks first.
-Only if all of them pass does it report two more: `Jenkins / Publish images`, which pushes the backend and frontend images to Docker Hub, and `Jenkins / Deploy`, which deploys them to Kubernetes with Ansible.
+Only if all of them pass does it deploy, reporting five more checks:
+
+| Check | What it does |
+| --- | --- |
+| `Jenkins / Publish images` | Pushes the backend and frontend images to Docker Hub |
+| `Jenkins / Provision server` | Terraform creates the Kubernetes server on AWS, or puts it back the way `deploy/terraform` describes |
+| `Jenkins / Configure server` | Ansible connects to it and installs Kubernetes (k3s) |
+| `Jenkins / Run containers` | Ansible deploys the new images to Kubernetes and smoke-tests the app |
+| `Jenkins / Kubernetes orchestration` | Scales the backend, deletes a pod to show Kubernetes replacing it, and prints the rollout history |
+
 See [deploy/README.md](deploy/README.md) for how the deploy works and the one-time setup.
 
 Unit and Selenium results show up as JUnit reports on the Jenkins build.
