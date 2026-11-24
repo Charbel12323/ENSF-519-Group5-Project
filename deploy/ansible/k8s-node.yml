@@ -1,0 +1,92 @@
+---
+# Turns the server Terraform created into a one-node Kubernetes cluster. Jenkins runs this on the Ansible
+# server on every deploy to main, right after Terraform:
+#
+#   ansible-playbook -i ~/.boardly/inventory.ini k8s-node.yml
+#
+# The inventory is written by ../terraform/run.sh. Every step checks first, so on a server that is
+# already set up this changes nothing and takes a few seconds; on a new server it takes 2-3 minutes.
+#
+# Kubernetes here is k3s: a full, certified Kubernetes packaged as one binary, small enough for a t3.small.
+- name: Set up Kubernetes (k3s) on the Boardly server
+  hosts: "{{ target_host | default('boardly_k8s') }}"
+  gather_facts: false
+  become: true
+
+  vars:
+    # Pinned so every server gets the same Kubernetes. Changing it doesn't upgrade an existing server
+    # (the install step is skipped once k3s is there); run `./run.sh destroy` and redeploy to pick it up.
+    k3s_version: v1.37.2+k3s1
+    # Traefik and ServiceLB are k3s's built-in ingress and load balancer. The app is published on a
+    # NodePort instead, so they would only use memory.
+    k3s_exec: server --disable traefik --disable servicelb --write-kubeconfig-mode 600
+    swap_size_mb: 2048
+
+  tasks:
+    - name: Wait for the server to accept SSH (a new server takes a minute to boot)
+      ansible.builtin.wait_for_connection:
+        timeout: 300
+
+    - name: Wait for first-boot setup to finish, so it isn't holding the package manager
+      ansible.builtin.command: cloud-init status --wait
+      changed_when: false
+      # Exit code 2 means it finished with warnings, which is fine here.
+      failed_when: cloud_init.rc not in [0, 2]
+      register: cloud_init
+
+    # 2 GB of memory is tight during a rolling update, when a new pod starts before the old one stops.
+    # Swap gives that moment some room instead of the kernel killing a pod. k3s runs fine with swap on.
+    - name: Create a swap file
+      ansible.builtin.command: >-
+        sh -c 'fallocate -l {{ swap_size_mb }}M /swapfile && chmod 600 /swapfile && mkswap /swapfile'
+      args:
+        creates: /swapfile
+
+    - name: Turn the swap file on now
+      ansible.builtin.command: swapon /swapfile
+      register: swapon
+      changed_when: swapon.rc == 0
+      failed_when: swapon.rc != 0 and 'busy' not in swapon.stderr
+
+    - name: Turn the swap file on at boot
+      ansible.builtin.lineinfile:
+        path: /etc/fstab
+        line: /swapfile none swap sw 0 0
+
+    - name: Download the k3s installer
+      ansible.builtin.get_url:
+        url: https://get.k3s.io
+        dest: /usr/local/bin/k3s-install.sh
+        mode: "0755"
+
+    - name: Install k3s
+      ansible.builtin.command: /usr/local/bin/k3s-install.sh
+      args:
+        creates: /usr/local/bin/k3s
+      environment:
+        INSTALL_K3S_VERSION: "{{ k3s_version }}"
+        INSTALL_K3S_EXEC: "{{ k3s_exec }}"
+
+    - name: Make sure k3s is running and starts at boot
+      ansible.builtin.systemd_service:
+        name: k3s
+        state: started
+        enabled: true
+
+    - name: Wait for the node to be Ready
+      ansible.builtin.command: kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml wait --for=condition=Ready node --all --timeout=180s
+      register: node_ready
+      changed_when: false
+      # Right after the install the node may not be registered yet, and `wait` fails at once.
+      until: node_ready.rc == 0
+      retries: 12
+      delay: 5
+
+    - name: Get the cluster's state
+      ansible.builtin.command: kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml get nodes -o wide
+      register: nodes
+      changed_when: false
+
+    - name: Show the cluster's state
+      ansible.builtin.debug:
+        var: nodes.stdout_lines

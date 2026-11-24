@@ -1,0 +1,5 @@
+# run.sh runs Terraform in ~/.boardly/terraform, but keep local experiments out of git.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
