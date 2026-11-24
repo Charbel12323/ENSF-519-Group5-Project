@@ -41,7 +41,7 @@ if [ -f "$here/.terraform.lock.hcl" ]; then
 fi
 cd "$work"
 
-# This machine's region and private address, from the EC2 metadata service.
+# This machine's region, private address and image, from the EC2 metadata service.
 token=$(curl -sf -m 3 -X PUT http://169.254.169.254/latest/api/token -H "X-aws-ec2-metadata-token-ttl-seconds: 60")
 metadata() { curl -sf -m 3 -H "X-aws-ec2-metadata-token: $token" "http://169.254.169.254/latest/meta-data/$1"; }
 
@@ -50,6 +50,9 @@ export TF_IN_AUTOMATION=1
 export TF_CLI_ARGS="-no-color"
 export TF_VAR_region="${AWS_REGION:-$(metadata placement/region)}"
 export TF_VAR_ansible_cidr="$(metadata local-ipv4)/32"
+# The new server runs the same Ubuntu image as this one: it is known to exist in this account and
+# region, and it's only used when the server is first created (main.tf ignores later image changes).
+export TF_VAR_ami_id="${BOARDLY_AMI_ID:-$(metadata ami-id)}"
 export TF_VAR_public_key_path="$ssh_key.pub"
 
 # The release currently recorded on the server, so plan and destroy don't show a tag change.
